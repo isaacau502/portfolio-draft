@@ -1,0 +1,1490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Isaac Au - Portfolio</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #1f2937;
+            background: #f9fafb;
+            overflow-x: hidden;
+        }
+
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            z-index: 50;
+            backdrop-filter: blur(20px);
+            background: rgba(255, 255, 255, 0.9);
+            border-bottom: 1px solid #e5e7eb;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        .nav-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #1f2937;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2.5rem;
+        }
+
+        .nav-links button {
+            background: none;
+            border: none;
+            color: #4b5563;
+            font-weight: 500;
+            cursor: pointer;
+            transition: color 0.3s ease;
+            font-size: 1rem;
+        }
+
+        .nav-links button:hover {
+            color: #2563eb;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+
+        .section {
+            padding: 6rem 2rem;
+        }
+
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            background: linear-gradient(135deg, #dbeafe 0%, #ffffff 50%, #faf5ff 100%);
+            overflow: hidden;
+        }
+
+        .hero-bg {
+            position: absolute;
+            inset: 0;
+        }
+
+        .hero-blob {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(60px);
+            opacity: 0.3;
+        }
+
+        .hero-blob1 {
+            top: 5rem;
+            left: 5rem;
+            width: 10rem;
+            height: 10rem;
+            background: #bfdbfe;
+        }
+
+        .hero-blob2 {
+            bottom: 5rem;
+            right: 5rem;
+            width: 15rem;
+            height: 15rem;
+            background: #e9d5ff;
+        }
+
+        .hero-blob3 {
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20rem;
+            height: 20rem;
+            background: #fce7f3;
+        }
+
+        .hero-content {
+            text-align: center;
+            z-index: 10;
+            max-width: 80rem;
+            margin: 0 auto;
+        }
+
+        .hero-title {
+            font-size: 8rem;
+            font-weight: 900;
+            margin-bottom: 2rem;
+            background: linear-gradient(135deg, #1f2937 0%, #1e40af 50%, #7c3aed 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 0.9;
+        }
+
+        .hero-subtitle {
+            font-size: 2.5rem;
+            color: #4b5563;
+            margin-bottom: 1.5rem;
+            font-weight: 300;
+        }
+
+        .hero-description {
+            font-size: 1.25rem;
+            color: #6b7280;
+            max-width: 48rem;
+            margin: 0 auto 3rem;
+            font-weight: 300;
+            line-height: 1.7;
+        }
+
+        .cta-button {
+            padding: 1rem 2.5rem;
+            background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+            color: white;
+            border: none;
+            border-radius: 9999px;
+            font-weight: 600;
+            font-size: 1.125rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 25px rgba(37, 99, 235, 0.3);
+        }
+
+        .cta-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 15px 35px rgba(37, 99, 235, 0.4);
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 5rem;
+        }
+
+        .section-title {
+            font-size: 4rem;
+            font-weight: 900;
+            color: #1f2937;
+            margin-bottom: 1.5rem;
+        }
+
+        .section-divider {
+            width: 6rem;
+            height: 0.25rem;
+            background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+            margin: 0 auto;
+        }
+
+        .bg-white {
+            background: white;
+        }
+
+        .bg-gray {
+            background: linear-gradient(180deg, #f9fafb 0%, #ffffff 100%);
+        }
+
+        .about-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 5rem;
+            align-items: center;
+        }
+
+        .about-content h3 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 1.5rem;
+        }
+
+        .about-content p {
+            font-size: 1.25rem;
+            color: #6b7280;
+            line-height: 1.7;
+            margin-bottom: 2rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            padding: 1.5rem;
+            border-radius: 1rem;
+            border: 1px solid #93c5fd;
+        }
+
+        .stat-number {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #1e40af;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            color: #2563eb;
+            font-weight: 600;
+        }
+
+        .roles-card {
+            background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%);
+            border-radius: 1.5rem;
+            padding: 2.5rem;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        .roles-card h4 {
+            font-size: 1.875rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 2rem;
+        }
+
+        .role-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .role-dot {
+            width: 0.75rem;
+            height: 0.75rem;
+            border-radius: 50%;
+            margin-top: 0.5rem;
+            flex-shrink: 0;
+        }
+
+        .role-dot.blue { background: #2563eb; }
+        .role-dot.purple { background: #7c3aed; }
+        .role-dot.green { background: #059669; }
+
+        .role-content h5 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #1f2937;
+        }
+
+        .role-content p {
+            color: #6b7280;
+            font-size: 1rem;
+        }
+
+        .experience-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 4rem;
+        }
+
+        .experience-card {
+            background: white;
+            border-radius: 1.5rem;
+            padding: 2.5rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e5e7eb;
+            transition: all 0.5s ease;
+        }
+
+        .experience-card:hover {
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
+        }
+
+        .experience-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .experience-header h3 {
+            font-size: 1.875rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 0.75rem;
+        }
+
+        .experience-header h4 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .experience-header h4.blue { color: #2563eb; }
+        .experience-header h4.purple { color: #7c3aed; }
+        .experience-header h4.green { color: #059669; }
+
+        .experience-header p {
+            color: #6b7280;
+            font-weight: 500;
+        }
+
+        .date-badge {
+            padding: 0.75rem 1.5rem;
+            border-radius: 9999px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .date-badge.blue {
+            background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%);
+            color: #1e40af;
+            border: 1px solid #93c5fd;
+        }
+
+        .date-badge.purple {
+            background: linear-gradient(135deg, #f3e8ff 0%, #fae8ff 100%);
+            color: #7c2d92;
+            border: 1px solid #c084fc;
+        }
+
+        .date-badge.green {
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+            color: #047857;
+            border: 1px solid #6ee7b7;
+        }
+
+        .experience-description {
+            font-size: 1.25rem;
+            color: #4b5563;
+            line-height: 1.7;
+            margin-bottom: 2rem;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .metric-card {
+            padding: 1.5rem;
+            border-radius: 1rem;
+            border: 1px solid;
+        }
+
+        .metric-card.green {
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+            border-color: #6ee7b7;
+        }
+
+        .metric-card.blue {
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            border-color: #93c5fd;
+        }
+
+        .metric-card.purple {
+            background: linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%);
+            border-color: #c084fc;
+        }
+
+        .metric-number {
+            font-size: 1.875rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-number.green { color: #047857; }
+        .metric-number.blue { color: #1e40af; }
+        .metric-number.purple { color: #7c2d92; }
+
+        .metric-label {
+            font-weight: 600;
+        }
+
+        .metric-label.green { color: #059669; }
+        .metric-label.blue { color: #2563eb; }
+        .metric-label.purple { color: #9333ea; }
+
+        .achievements h5 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 1rem;
+        }
+
+        .achievements-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 0.75rem;
+            color: #4b5563;
+        }
+
+        .achievement-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .achievement-dot {
+            width: 0.5rem;
+            height: 0.5rem;
+            background: #2563eb;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .tech-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
+        .tech-tag {
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            border: 1px solid;
+        }
+
+        .tech-tag.purple {
+            background: linear-gradient(135deg, #f3e8ff 0%, #fae8ff 100%);
+            color: #7c2d92;
+            border-color: #d8b4fe;
+        }
+
+        .tech-tag.green {
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+            color: #047857;
+            border-color: #86efac;
+        }
+
+        .tech-tag.blue {
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            color: #1e40af;
+            border-color: #93c5fd;
+        }
+
+        .projects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 3rem;
+        }
+
+        .project-card {
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            border-radius: 1.5rem;
+            padding: 2.5rem;
+            border: 1px solid #93c5fd;
+            transition: all 0.5s ease;
+        }
+
+        .project-card:hover {
+            transform: scale(1.05);
+            box-shadow: 0 25px 50px rgba(37, 99, 235, 0.2);
+        }
+
+        .project-card.purple {
+            background: linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%);
+            border-color: #c084fc;
+        }
+
+        .project-card.green {
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+            border-color: #6ee7b7;
+        }
+
+        .project-card.orange {
+            background: linear-gradient(135deg, #fed7aa 0%, #fdba74 100%);
+            border-color: #fb923c;
+        }
+
+        .project-card h3 {
+            font-size: 1.875rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+        }
+
+        .project-card h3.blue { color: #1e40af; }
+        .project-card h3.purple { color: #7c2d92; }
+        .project-card h3.green { color: #047857; }
+        .project-card h3.orange { color: #c2410c; }
+
+        .project-card p {
+            font-size: 1.25rem;
+            color: #4b5563;
+            line-height: 1.7;
+            margin-bottom: 2rem;
+        }
+
+        .project-details h4 {
+            font-size: 1.125rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 1rem;
+        }
+
+        .project-impact {
+            padding: 1rem;
+            border-radius: 0.75rem;
+            font-weight: 600;
+        }
+
+        .project-impact.blue {
+            background: rgba(37, 99, 235, 0.1);
+            color: #1e40af;
+            border: 1px solid #93c5fd;
+        }
+
+        .project-impact.purple {
+            background: rgba(124, 58, 237, 0.1);
+            color: #7c2d92;
+            border: 1px solid #c084fc;
+        }
+
+        .project-impact.green {
+            background: rgba(5, 150, 105, 0.1);
+            color: #047857;
+            border: 1px solid #6ee7b7;
+        }
+
+        .project-impact.orange {
+            background: rgba(194, 65, 12, 0.1);
+            color: #c2410c;
+            border: 1px solid #fb923c;
+        }
+
+        .skills-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 3rem;
+            margin-bottom: 5rem;
+        }
+
+        .skill-category {
+            background: white;
+            border-radius: 1.5rem;
+            padding: 2.5rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e5e7eb;
+        }
+
+        .skill-category h3 {
+            font-size: 1.875rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+        }
+
+        .skill-category h3.blue { color: #2563eb; }
+        .skill-category h3.purple { color: #7c3aed; }
+        .skill-category h3.green { color: #059669; }
+
+        .skill-item {
+            margin-bottom: 1.5rem;
+        }
+
+        .skill-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .skill-name {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: #1f2937;
+        }
+
+        .skill-percentage {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #6b7280;
+        }
+
+        .skill-bar {
+            width: 100%;
+            height: 0.75rem;
+            background: #e5e7eb;
+            border-radius: 9999px;
+            overflow: hidden;
+        }
+
+        .skill-progress {
+            height: 100%;
+            border-radius: 9999px;
+            transition: width 2s ease-in-out;
+            width: 0;
+        }
+
+        .skill-progress.blue {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        }
+
+        .skill-progress.purple {
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+        }
+
+        .skill-progress.green {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        }
+
+        .interests-section {
+            text-align: center;
+        }
+
+        .interests-section h3 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 2rem;
+        }
+
+        .interests-grid {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 1.5rem;
+        }
+
+        .interest-tag {
+            padding: 1rem 2rem;
+            border-radius: 9999px;
+            font-size: 1.125rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .interest-tag:hover {
+            transform: scale(1.05);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        .interest-tag.blue {
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            color: #1e40af;
+            border: 1px solid #93c5fd;
+        }
+
+        .interest-tag.purple {
+            background: linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%);
+            color: #7c2d92;
+            border: 1px solid #c084fc;
+        }
+
+        .interest-tag.green {
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+            color: #047857;
+            border: 1px solid #6ee7b7;
+        }
+
+        .interest-tag.pink {
+            background: linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%);
+            color: #be185d;
+            border: 1px solid #f9a8d4;
+        }
+
+        .interest-tag.orange {
+            background: linear-gradient(135deg, #fed7aa 0%, #fdba74 100%);
+            color: #c2410c;
+            border: 1px solid #fb923c;
+        }
+
+        .contact-description {
+            font-size: 1.5rem;
+            color: #6b7280;
+            line-height: 1.7;
+            max-width: 64rem;
+            margin: 0 auto 3rem;
+            text-align: center;
+        }
+
+        .contact-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-bottom: 4rem;
+        }
+
+        .contact-card {
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            border-radius: 1.5rem;
+            padding: 2.5rem;
+            border: 1px solid #93c5fd;
+            text-align: center;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+
+        .contact-card:hover {
+            transform: scale(1.05);
+            box-shadow: 0 25px 50px rgba(37, 99, 235, 0.2);
+        }
+
+        .contact-card.purple {
+            background: linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%);
+            border-color: #c084fc;
+        }
+
+        .contact-card.green {
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+            border-color: #6ee7b7;
+        }
+
+        .contact-icon {
+            font-size: 3rem;
+            margin-bottom: 1.5rem;
+            transition: transform 0.3s ease;
+        }
+
+        .contact-card:hover .contact-icon {
+            transform: scale(1.1);
+        }
+
+        .contact-card h3 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+        }
+
+        .contact-card h3.blue { color: #1e40af; }
+        .contact-card h3.purple { color: #7c2d92; }
+        .contact-card h3.green { color: #047857; }
+
+        .contact-card p {
+            font-size: 1.25rem;
+            color: #4b5563;
+            font-weight: 500;
+        }
+
+        .location-card {
+            background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%);
+            border-radius: 1.5rem;
+            padding: 2.5rem;
+            border: 1px solid #e5e7eb;
+        }
+
+        .location-card h4 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin-bottom: 1rem;
+        }
+
+        .location-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            font-size: 1.125rem;
+            color: #4b5563;
+        }
+
+        .location-grid span {
+            font-weight: 600;
+        }
+
+        footer {
+            padding: 3rem 2rem;
+            background: #1f2937;
+            color: white;
+            text-align: center;
+        }
+
+        footer p {
+            font-size: 1.25rem;
+            color: #d1d5db;
+        }
+
+        .fade-in {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: all 0.8s ease;
+        }
+
+        .fade-in.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .parallax {
+            transition: transform 0.1s ease;
+        }
+
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+
+            .hero-title {
+                font-size: 4rem;
+            }
+
+            .hero-subtitle {
+                font-size: 1.5rem;
+            }
+
+            .section-title {
+                font-size: 3rem;
+            }
+
+            .about-grid {
+                grid-template-columns: 1fr;
+                gap: 3rem;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .experience-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .projects-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .skills-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .contact-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .section {
+                padding: 4rem 1rem;
+            }
+
+            .container {
+                padding: 0 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-container">
+            <div class="logo">Isaac Au</div>
+            <div class="nav-links">
+                <button onclick="scrollToSection('about')">About</button>
+                <button onclick="scrollToSection('experience')">Experience</button>
+                <button onclick="scrollToSection('projects')">Projects</button>
+                <button onclick="scrollToSection('skills')">Skills</button>
+                <button onclick="scrollToSection('contact')">Contact</button>
+            </div>
+        </div>
+    </nav>
+
+    <section id="hero" class="hero">
+        <div class="hero-bg">
+            <div class="hero-blob hero-blob1"></div>
+            <div class="hero-blob hero-blob2"></div>
+            <div class="hero-blob hero-blob3"></div>
+        </div>
+        <div class="hero-content parallax">
+            <h1 class="hero-title">Isaac Au</h1>
+            <h2 class="hero-subtitle">AI Researcher & Full-Stack Developer</h2>
+            <p class="hero-description">
+                Carnegie Mellon CS student pioneering artificial intelligence solutions 
+                for healthcare, with expertise in machine learning and scalable systems architecture.
+            </p>
+            <button class="cta-button" onclick="scrollToSection('about')">
+                Explore My Journey
+            </button>
+        </div>
+    </section>
+
+    <section id="about" class="section bg-white">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">About</h2>
+                <div class="section-divider"></div>
+            </div>
+            
+            <div class="about-grid">
+                <div class="about-content fade-in">
+                    <h3>Academic Excellence</h3>
+                    <p>
+                        Computer Science student at Carnegie Mellon University maintaining a 3.9 GPA 
+                        while consistently earning Dean's List High Honors. Currently advancing through 
+                        graduate-level coursework in Distributed Systems and Machine Learning.
+                    </p>
+                    
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-number">3.9</div>
+                            <div class="stat-label">GPA</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">2027</div>
+                            <div class="stat-label">Graduation</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="roles-card fade-in">
+                    <h4>Current Roles</h4>
+                    <div class="role-item">
+                        <div class="role-dot blue"></div>
+                        <div class="role-content">
+                            <h5>Teaching Assistant</h5>
+                            <p>Reasoning With Data • Fall 2025</p>
+                        </div>
+                    </div>
+                    <div class="role-item">
+                        <div class="role-dot purple"></div>
+                        <div class="role-content">
+                            <h5>President</h5>
+                            <p>Hong Kong Student Association</p>
+                        </div>
+                    </div>
+                    <div class="role-item">
+                        <div class="role-dot green"></div>
+                        <div class="role-content">
+                            <h5>Researcher</h5>
+                            <p>Medical AI & LLM Pipelines</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="experience" class="section bg-gray">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">Experience</h2>
+                <div class="section-divider"></div>
+            </div>
+
+            <div class="experience-grid">
+                <div class="experience-card fade-in">
+                    <div class="experience-header">
+                        <div>
+                            <h3>Co-founder, Chief Product Officer</h3>
+                            <h4 class="blue">Ovis Medical Solutions</h4>
+                            <p>Hong Kong</p>
+                        </div>
+                        <div class="date-badge blue">Feb 2022 – Present</div>
+                    </div>
+                    
+                    <p class="experience-description">
+                        Leading product strategy and execution for an AI-powered cancer symptom-tracking platform, 
+                        collaborating with clinical oncologists to improve patient outcomes through innovative technology.
+                    </p>
+                    
+                    <div class="metrics-grid">
+                        <div class="metric-card green">
+                            <div class="metric-number green">$72K</div>
+                            <div class="metric-label green">Funding Secured</div>
+                        </div>
+                        <div class="metric-card blue">
+                            <div class="metric-number blue">1,000+</div>
+                            <div class="metric-label blue">Patient Assessments</div>
+                        </div>
+                        <div class="metric-card purple">
+                            <div class="metric-number purple">5</div>
+                            <div class="metric-label purple">Team Members</div>
+                        </div>
+                    </div>
+
+                    <div class="achievements">
+                        <h5>Key Achievements:</h5>
+                        <div class="achievements-list">
+                            <div class="achievement-item">
+                                <div class="achievement-dot"></div>
+                                <span>Architected scalable FastAPI backend infrastructure</span>
+                            </div>
+                            <div class="achievement-item">
+                                <div class="achievement-dot"></div>
+                                <span>Integrated OpenAI GPT-4 for symptom assessment</span>
+                            </div>
+                            <div class="achievement-item">
+                                <div class="achievement-dot"></div>
+                                <span>Managed MongoDB Atlas cloud database</span>
+                            </div>
+                            <div class="achievement-item">
+                                <div class="achievement-dot"></div>
+                                <span>Deployed Next.js/React frontend application</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="experience-card fade-in">
+                    <div class="experience-header">
+                        <div>
+                            <h3>AI Research Scientist</h3>
+                            <h4 class="purple">Carnegie Mellon University</h4>
+                            <p>Pittsburgh, PA</p>
+                        </div>
+                        <div class="date-badge purple">May 2025 – Present</div>
+                    </div>
+                    
+                    <p class="experience-description">
+                        Advancing medical AI research under Professor Bryan Wilder and PhD Student Yingtao Luo, 
+                        developing cutting-edge LLM pipelines for enhanced medical reasoning and decision-making.
+                    </p>
+                    
+                    <div class="achievements">
+                        <h5>Research Contributions:</h5>
+                        <div class="metrics-grid">
+                            <div class="metric-card blue">
+                                <h6 style="font-size: 1.125rem; font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">Dataset Publication</h6>
+                                <p style="color: #2563eb; margin: 0;">50k-row medical reasoning dataset on HuggingFace</p>
+                            </div>
+                            <div class="metric-card green">
+                                <h6 style="font-size: 1.125rem; font-weight: 600; color: #047857; margin-bottom: 0.5rem;">Model Fine-tuning</h6>
+                                <p style="color: #059669; margin: 0;">Supervised fine-tuning of Qwen-4B using LlamaFactory</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="tech-tags">
+                        <span class="tech-tag purple">LLM Fine-tuning</span>
+                        <span class="tech-tag purple">Medical Reasoning</span>
+                        <span class="tech-tag purple">RAG Systems</span>
+                        <span class="tech-tag purple">Model Evaluation</span>
+                        <span class="tech-tag purple">HuggingFace</span>
+                    </div>
+                </div>
+
+                <div class="experience-card fade-in">
+                    <div class="experience-header">
+                        <div>
+                            <h3>Software Development Intern</h3>
+                            <h4 class="green">Rice Robotics</h4>
+                            <p>Hong Kong</p>
+                        </div>
+                        <div class="date-badge green">May 2024 – Jul 2024</div>
+                    </div>
+                    
+                    <p class="experience-description">
+                        Rapidly developed and integrated comprehensive AI functionalities for the RICE mini AI product, 
+                        delivering a complete solution within an ambitious 1.5-month timeline.
+                    </p>
+                    
+                    <div class="tech-tags">
+                        <span class="tech-tag green">Full-Stack Development</span>
+                        <span class="tech-tag green">AI Integration</span>
+                        <span class="tech-tag green">Real-time Systems</span>
+                        <span class="tech-tag green">Flask</span>
+                        <span class="tech-tag green">Socket.IO</span>
+                        <span class="tech-tag green">Azure OpenAI</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="projects" class="section bg-white">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">Featured Projects</h2>
+                <div class="section-divider"></div>
+            </div>
+            
+            <div class="projects-grid">
+                <div class="project-card fade-in">
+                    <h3 class="blue">AI-Powered Medical Platform</h3>
+                    <p>
+                        Revolutionary conversational assessment platform leveraging GPT-4 for cancer symptom tracking, 
+                        featuring multimodal interaction capabilities and real-time patient monitoring.
+                    </p>
+                    <div class="project-details">
+                        <h4>Technical Stack:</h4>
+                        <div class="tech-tags" style="margin-bottom: 2rem;">
+                            <span class="tech-tag blue">FastAPI</span>
+                            <span class="tech-tag blue">React/Next.js</span>
+                            <span class="tech-tag blue">OpenAI GPT-4</span>
+                            <span class="tech-tag blue">MongoDB Atlas</span>
+                            <span class="tech-tag blue">Microsoft Speech</span>
+                        </div>
+                        <div class="project-impact blue">
+                            Impact: Supporting 1,000+ patient assessments with $72K funding secured
+                        </div>
+                    </div>
+                </div>
+
+                <div class="project-card purple fade-in">
+                    <h3 class="purple">Medical LLM Research Pipeline</h3>
+                    <p>
+                        Advanced research initiative developing sophisticated evaluation frameworks for medical reasoning, 
+                        with published datasets advancing the field of healthcare AI.
+                    </p>
+                    <div class="project-details">
+                        <h4>Research Components:</h4>
+                        <div class="tech-tags" style="margin-bottom: 2rem;">
+                            <span class="tech-tag purple">LLM Fine-tuning</span>
+                            <span class="tech-tag purple">RAG Implementation</span>
+                            <span class="tech-tag purple">Custom Evaluation</span>
+                            <span class="tech-tag purple">Dataset Curation</span>
+                            <span class="tech-tag purple">Model Benchmarking</span>
+                        </div>
+                        <div class="project-impact purple">
+                            Achievement: 50k-row dataset published on HuggingFace
+                        </div>
+                    </div>
+                </div>
+
+                <div class="project-card green fade-in">
+                    <h3 class="green">RICE Mini AI Product</h3>
+                    <p>
+                        Comprehensive AI integration project featuring LLMs, text-to-speech, graphic displays, 
+                        and multimodal conversation capabilities with real-time communication systems.
+                    </p>
+                    <div class="project-details">
+                        <h4>Core Features:</h4>
+                        <div class="tech-tags" style="margin-bottom: 2rem;">
+                            <span class="tech-tag green">Multimodal AI</span>
+                            <span class="tech-tag green">Real-time Communication</span>
+                            <span class="tech-tag green">Voice Synthesis</span>
+                            <span class="tech-tag green">Visual Interface</span>
+                            <span class="tech-tag green">Socket.IO</span>
+                        </div>
+                        <div class="project-impact green">
+                            Timeline: Complete development and deployment in 1.5 months
+                        </div>
+                    </div>
+                </div>
+
+                <div class="project-card orange fade-in">
+                    <h3 class="orange">Award-Winning Innovations</h3>
+                    <p>
+                        Recognition for technical excellence and business innovation, including robotics competition victories 
+                        and entrepreneurship achievements at the professional level.
+                    </p>
+                    <div class="project-details">
+                        <h4>Achievements:</h4>
+                        <div style="margin-bottom: 2rem;">
+                            <div class="achievement-item" style="margin-bottom: 0.75rem;">
+                                <div class="achievement-dot" style="background: #c2410c;"></div>
+                                <span>FIRST Tech Challenge Control Award (Sydney)</span>
+                            </div>
+                            <div class="achievement-item">
+                                <div class="achievement-dot" style="background: #c2410c;"></div>
+                                <span>Youth Council Business Competition Champion</span>
+                            </div>
+                        </div>
+                        <div class="project-impact orange">
+                            Distinction: Only high school team in professional competition category
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="skills" class="section bg-gray">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">Skills & Technologies</h2>
+                <div class="section-divider"></div>
+            </div>
+            
+            <div class="skills-grid">
+                <div class="skill-category fade-in">
+                    <h3 class="blue">Programming Languages</h3>
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">Python</span>
+                            <span class="skill-percentage">95%</span>
+                        </div>
+                        <div class="skill-bar">
+                            <div class="skill-progress blue" data-width="95"></div>
+                        </div>
+                    </div>
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">C/C++</span>
+                            <span class="skill-percentage">90%</span>
+                        </div>
+                        <div class="skill-bar">
+                            <div class="skill-progress blue" data-width="90"></div>
+                        </div>
+                    </div>
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">Go (Golang)</span>
+                            <span class="skill-percentage">85%</span>
+                        </div>
+                        <div class="skill-bar">
+                            <div class="skill-progress blue" data-width="85"></div>
+                        </div>
+                    </div>
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">JavaScript</span>
+                            <span class="skill-percentage">90%</span>
+                        </div>
+                        <div class="skill-bar">
+                            <div class="skill-progress blue" data-width="90"></div>
+                        </div>
+                    </div>
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">SQL</span>
+                            <span class="skill-percentage">85%</span>
+                        </div>
+                        <div class="skill-bar">
+                            <div class="skill-progress blue" data-width="85"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="skill-category fade-in">
+                    <h3 class="purple">AI & Machine Learning</h3>
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">PyTorch</span>
+                            <span class="skill-percentage">90%</span>
+                        </div>
+                        <div class="skill-bar">
+                            <div class="skill-progress purple" data-width="90"></div>
+                        </div>
+                    </div>
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">OpenAI APIs</span>
+                            <span class="skill-percentage">95%</span>
+                        </div>
+                        <div class="skill-bar">
+                            <div class="skill-progress purple" data-width="95"></div>
+                        </div>
+                    </div>
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">CUDA</span>
+                            <span class="skill-percentage">80%</span>
+                        </div>
+                        <div class="skill-bar">
+                            <div class="skill-progress purple" data-width="80"></div>
+                        </div>
+                    </div>
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">LLM Fine-tuning</span>
+                            <span class="skill-percentage">85%</span>
+                        </div>
+                        <div class="skill-bar">
+                            <div class="skill-progress purple" data-width="85"></div>
+                        </div>
+                    </div>
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">RAG Systems</span>
+                            <span class="skill-percentage">90%</span>
+                        </div>
+                        <div class="skill-bar">
+                            <div class="skill-progress purple" data-width="90"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="skill-category fade-in">
+                    <h3 class="green">Full-Stack Development</h3>
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">React/Next.js</span>
+                            <span class="skill-percentage">90%</span>
+                        </div>
+                        <div class="skill-bar">
+                            <div class="skill-progress green" data-width="90"></div>
+                        </div>
+                    </div>
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">FastAPI</span>
+                            <span class="skill-percentage">95%</span>
+                        </div>
+                        <div class="skill-bar">
+                            <div class="skill-progress green" data-width="95"></div>
+                        </div>
+                    </div>
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">MongoDB</span>
+                            <span class="skill-percentage">85%</span>
+                        </div>
+                        <div class="skill-bar">
+                            <div class="skill-progress green" data-width="85"></div>
+                        </div>
+                    </div>
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">Azure Cloud</span>
+                            <span class="skill-percentage">80%</span>
+                        </div>
+                        <div class="skill-bar">
+                            <div class="skill-progress green" data-width="80"></div>
+                        </div>
+                    </div>
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">Socket.IO</span>
+                            <span class="skill-percentage">85%</span>
+                        </div>
+                        <div class="skill-bar">
+                            <div class="skill-progress green" data-width="85"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="interests-section">
+                <h3>Areas of Interest</h3>
+                <div class="interests-grid">
+                    <span class="interest-tag blue">Large Language Models</span>
+                    <span class="interest-tag purple">Artificial Intelligence</span>
+                    <span class="interest-tag green">Systems & Networking</span>
+                    <span class="interest-tag pink">UI/UX Design</span>
+                    <span class="interest-tag orange">Medical Technology</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="contact" class="section bg-white">
+        <div class="container">
+            <div class="section-header">
+                <h2 class="section-title">Let's Connect</h2>
+                <div class="section-divider"></div>
+                <p class="contact-description">
+                    Passionate about collaborating on groundbreaking AI research, innovative medical technology, 
+                    or transformative projects that make a meaningful impact.
+                </p>
+            </div>
+            
+            <div class="contact-grid">
+                <a href="mailto:ayhisaac@gmail.com" class="contact-card">
+                    <div class="contact-icon">📧</div>
+                    <h3 class="blue">Email</h3>
+                    <p>ayhisaac@gmail.com</p>
+                </a>
+                
+                <a href="https://www.linkedin.com/in/isaacayh/" target="_blank" rel="noopener noreferrer" class="contact-card purple">
+                    <div class="contact-icon">💼</div>
+                    <h3 class="purple">LinkedIn</h3>
+                    <p>Professional Network</p>
+                </a>
+                
+                <div class="contact-card green">
+                    <div class="contact-icon">📱</div>
+                    <h3 class="green">Phone</h3>
+                    <p>(412) 378-7254</p>
+                </div>
+            </div>
+
+            <div class="location-card">
+                <h4>Location & Languages</h4>
+                <div class="location-grid">
+                    <div>
+                        <span>Based in:</span> Pittsburgh, PA<br>
+                        <span>Institution:</span> Carnegie Mellon University
+                    </div>
+                    <div>
+                        <span>Languages:</span> English, Cantonese (Fluent)<br>
+                        <span>Professional:</span> Mandarin
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>© 2025 Isaac Au • Crafted with passion for innovation and excellence</p>
+        </div>
+    </footer>
+
+    <script>
+        function scrollToSection(sectionId) {
+            var element = document.getElementById(sectionId);
+            if (element) {
+                element.scrollIntoView({ behavior: 'smooth' });
+            }
+        }
+
+        var scrollY = 0;
+        window.addEventListener('scroll', function() {
+            scrollY = window.scrollY;
+            var parallaxElements = document.querySelectorAll('.parallax');
+            for (var i = 0; i < parallaxElements.length; i++) {
+                var element = parallaxElements[i];
+                var speed = 0.2;
+                element.style.transform = 'translateY(' + (scrollY * speed) + 'px)';
+            }
+        });
+
+        function animateOnScroll() {
+            var elements = document.querySelectorAll('.fade-in');
+            var windowHeight = window.innerHeight;
+            
+            for (var i = 0; i < elements.length; i++) {
+                var element = elements[i];
+                var elementTop = element.getBoundingClientRect().top;
+                var elementVisible = 150;
+                
+                if (elementTop < windowHeight - elementVisible) {
+                    element.classList.add('visible');
+                }
+            }
+        }
+
+        function animateSkillBars() {
+            var skillBars = document.querySelectorAll('.skill-progress');
+            var windowHeight = window.innerHeight;
+            
+            for (var i = 0; i < skillBars.length; i++) {
+                var bar = skillBars[i];
+                var barTop = bar.getBoundingClientRect().top;
+                
+                if (barTop < windowHeight - 100 && !bar.classList.contains('animated')) {
+                    var width = bar.getAttribute('data-width');
+                    bar.style.width = width + '%';
+                    bar.classList.add('animated');
+                }
+            }
+        }
+
+        window.addEventListener('scroll', function() {
+            animateOnScroll();
+            animateSkillBars();
+        });
+
+        document.addEventListener('DOMContentLoaded', function() {
+            animateOnScroll();
+            animateSkillBars();
+            
+            var cards = document.querySelectorAll('.experience-card, .project-card, .contact-card');
+            for (var i = 0; i < cards.length; i++) {
+                var card = cards[i];
+                card.addEventListener('mouseenter', function() {
+                    this.style.transform = 'translateY(-5px)';
+                });
+                card.addEventListener('mouseleave', function() {
+                    this.style.transform = 'translateY(0)';
+                });
+            }
+        });
+    </script>
+</body>
+</html>
