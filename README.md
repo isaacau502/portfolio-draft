@@ -206,3 +206,23 @@ Rules:
 ## OUT OF SCOPE (do not do during this build)
 - Renaming `max_depth`/`max_leaf_nodes` to fitted-value names (separate task; touches every `metric_policy`).
 - Frontier duplicate handling, failure-type classification, chosen-vs-fitted cap surfacing, per-direction history, a CLI flag for the cap, or multiple selection strategies.
+
+
+
+Here's the prompt to hand Sonnet:
+
+---
+
+**Context:** We just implemented the SensorFlow iterative mutation loop (CHUNKS 1-7). Before trusting it, I want smoke tests that verify the loop behaves as intended — both by reading the code and by running it.
+
+**Intended behavior to verify:**
+
+The loop replaces the old independent-N-edits flow with iterative frontier-based mutation. Each run: evaluate baseline (try_000), then for `num_tries` iterations — sample a parent uniformly from the current Pareto frontier of successful entries, build a feedback string about prior attempts, mutate that parent with the feedback, evaluate, and append the result (success *or* failure) to an in-memory archive. No acceptance gate — every result is recorded; the Pareto frontier is the only quality filter. Parent selection is seeded (42). The frontier is computed over all successful entries; failures (`status="error"`) are excluded from selection but still recorded. Baseline is `parent_try_id=None`; each mutation records its actual parent's try_id. Feedback shows baseline + best-so-far anchor, the frontier (parent marked, capped at 5 display rows), and the parent's confusion-matrix diagnostics. The loop stops at exactly `num_tries` — no early exit.
+
+**Two kinds of checks I want:**
+
+1. **Static (read the code):** confirm the control flow matches the above — especially that the old IID path is fully gone (no leftover independent-baseline loop), failures are appended not dropped, `get_pareto` is unmodified, and feedback is inserted in the prompt between the mutation-objective line and the baseline source. Report anything that contradicts the intended behavior.
+
+2. **Runtime (run it):** design and run smoke tests covering at least — a short clean run (e.g. `num_tries=3`) producing baseline + 3 archive entries; a run where a candidate fails eval (inject/simulate one) showing the failure is recorded and the loop continues; parent selection only ever drawing from frontier members; and feedback for try ≥1 referencing a real parent with the correct structure. Use a fast/dummy evaluator or task if a full run is slow.
+
+You have agency on test design and how to simulate failures — propose your approach, then implement and run. Flag any behavior that diverges from the intended description above rather than adjusting the tests to pass.
