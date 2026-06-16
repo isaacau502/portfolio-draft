@@ -1,63 +1,55 @@
-# portfolio-draft
+# Scout Instructions — SensorFlow Iterative Loop (READ-ONLY)
 
-# SensorFlow Iterative Loop — Decision Log
+You are scouting an existing codebase to report ground-truth facts. **Do NOT modify any files.** Do NOT propose designs. Report only what the code actually says, with file paths and line numbers. If something doesn't exist, say "not found" — do not guess.
 
-## Agreed Behavior
+Run these as **4 independent chunks**. Each chunk is self-contained — you do not need context from the others. Output each chunk's findings before moving to the next. Keep paste snippets minimal (only the lines asked for).
 
-Each try, the loop picks its parent via `random.choice(get_pareto(successful archive entries))`, calls the existing mutate with that parent’s source plus a new feedback section built by `summarize_feedback(archive, metric_policy)`, evals, and appends the result (including failures) to the flat archive — no acceptance gate, no `improved()`, Pareto computed from the archive exactly as today, with an optional `parent_try_id` field added per entry.
+---
 
-## Feedback Content (v1)
+## CHUNK 1 — Archive & path resolution (in `runner.py`)
 
-`summarize_feedback(archive, metric_policy)` returns a pre-rendered string (delivery: pre-rendered string passed into existing `mutate` signature — no data-layer change). Rendered as compact labeled lines (not JSON). Three blocks:
+1. Find where a single try runs today (baseline + N independent edits + eval). Paste ONLY the ~10-15 lines spanning: where `mutate` is called, where the candidate `.py` is written to disk, and where the evaluator is invoked. I want to see which local variables coexist in that scope — specifically whether the candidate `.py` path is held as a variable at the moment the eval result is available.
+2. Confirm the literal per-try directory layout. Is the candidate always at `tries/try_NNN/mutated_artifact/<filename>.py` and the result at `tries/try_NNN/mutated_artifact_eval/evaluation_result.json`? Report exact folder names and the exact candidate filename.
+3. Report the zero-pad width of the try id (e.g. `try_001` = 3 digits). Find where the try-dir name is constructed.
+4. Is `evaluation_result.json` written automatically inside the eval code path, or only by manual invocation? Point to the write site.
 
-1. **Anchor** — baseline metrics + best-so-far per policy metric.
-1. **Frontier** — Pareto frontier members as metric rows, the parent being mutated marked inline (`← mutating this`), capped at top N rows with “+K more” overflow note. Single block; no separate parent block (parent is on the frontier, avoid redundancy).
-1. **Confusion matrix** — for the parent only. Surfaces the class imbalance (rare class = car crash): caught-rate and false-alarm-rate with raw denominators.
+**Feasibility check (end of chunk):** Based on what you found, answer in 2-3 sentences: can the runner store the candidate `.py` path in an in-memory archive entry AT THE TIME it appends the eval result, without deriving the path from the result object afterward? If not, what's the blocker?
 
-Confusion matrix capture: add 4 raw counts (tn, fp, fn, tp) to the metrics dict, evaluator-side, from the matrix already computed for the existing PNG. **Diagnostic only — these counts must NOT go into `metric_policy`** (they are reported, not Pareto objectives; f1_score_class1 remains the rare-class policy objective).
+---
 
-Deferred from v1: chosen-vs-fitted cap surfacing (needs new capture path); per-direction history / anti-flip-flop (needs change-labels).
+## CHUNK 2 — Evaluator return shape & confusion matrix
 
-## Failure Contract
+Target the evaluator file (e.g. `evaluator.py` / `evaluate_classifier_sensorflow.py`).
 
-- **Where:** the evaluator wraps ONLY the candidate train+eval execution span in try/except. Data loading, metric computation on success, and everything outside candidate execution still crash loudly (those are framework bugs, not candidate failures).
-- **On catch:** print one diagnostic line (e.g. `[eval] candidate failed: <first line of error>`) for live visibility, AND return an error dict so the loop continues.
-- **Error dict shape:** identical shape to success, with `metrics: {}` (empty dict, never None, never absent), `status: "error"`, `failure_reason: str(e)` (the exception message, not a traceback). On success: `status: "ok"`, `failure_reason: None`.
-- **`status` values:** exactly two — `"ok"` and `"error"`.
+5. Paste the evaluator's function signature and its `return` statement(s) — the actual dict it constructs in code (not the JSON file). Show where `metrics`, `status`, and `failure_reason` are assembled.
+6. Find where the confusion matrix is computed (the 2x2 array or raw counts, just before the PNG is drawn). Paste that line / those lines so I can see what variable holds the counts.
+7. Is there currently ANY try/except around the candidate's train+eval execution, or does a bad candidate crash uncaught? Report what exists.
 
-## Success Predicate
+**Feasibility check (end of chunk):** In 2-3 sentences: can four raw confusion counts (`true_neg, false_pos, false_neg, true_pos`, positive class = car crash) be added to the returned `metrics` dict from the variable found in (6), with no new computation? And can a try/except be wrapped around ONLY the candidate-execution span to return `status="error"` + `failure_reason=str(e)` instead of crashing? Note any obstacle.
 
-- An archive entry is “successful” iff `status == "ok"`. Single source of truth; never inspect metrics to determine success.
-- Applied as a runner-side filter producing the `successful` list:
-  `successful = [e for e in archive if e.status == "ok"]`
-- This `successful` list feeds BOTH parent selection and frontier computation.
-- `get_pareto` is NOT modified — filtering happens at the call site in the runner, before `get_pareto` is called.
+---
 
-## Failure Contract
+## CHUNK 3 — Mutation prompt & mutate contract
 
-- **Where:** the evaluator wraps ONLY the candidate train+eval execution span in try/except. Data loading, metric computation on success, and everything outside candidate execution still crash loudly (those are framework bugs, not candidate failures).
-- **On catch:** print one diagnostic line (e.g. `[eval] candidate failed: <first line of error>`) for live visibility, AND return an error dict so the loop continues.
-- **Error dict shape:** identical shape to success, with `metrics` = `{}` (empty dict, never None, never absent), `status` = `"error"`, `failure_reason` = `str(exception)` (the message, not a full traceback). On success: `status` = `"ok"`, `failure_reason` = `None`.
-- **Status values:** exactly two — `"ok"` and `"error"`.
+Target the mutation engine file (e.g. `py_mutation_engine.py` / `mutation_engine.py`).
 
-## Success Predicate
+8. Paste `build_mutation_prompt()`'s signature and current parameter list, plus the section where baseline source is appended between `---` delimiters. I need the exact insertion point.
+9. Paste `mutate()`'s current signature.
 
-- A single predicate everywhere “usable” is needed: **`status == "ok"`**. Metrics are never inspected to decide success.
-- Applied as a **runner-side filter** producing the `successful` list, which feeds BOTH parent selection and frontier computation:
-  `successful = [e for e in archive if status == "ok"]`
-  `parent = random.choice(get_pareto(successful, metric_policy))`
-- `get_pareto` is **not modified** — it continues to assume all inputs have metrics. Filtering happens at the call site, in the (new) runner code.
+**Feasibility check (end of chunk):** In 2-3 sentences: can a new `feedback: str` parameter be threaded through `mutate()` into `build_mutation_prompt()` and inserted as a labeled section BETWEEN the rule bullets and the `---`-delimited baseline source, without restructuring the existing prompt? Note any obstacle.
 
-## Archive (net-new — does not exist yet)
+---
 
-**Current reality:** there is no archive today. A run only produces per-try `evaluation_result.json` objects written to `tries/try_NNN/.../`. There is no in-memory accumulation and no runtime Pareto over a live collection. The archive must be INTRODUCED — it is additive, not a refactor of existing data.
+## CHUNK 4 — get_pareto input contract
 
-**Decision (per “boundary-only persistence” principle):**
+Target `get_pareto.py`.
 
-- Archive = an **in-memory list of result entries**, built during the run (`results = []` in the runner, appended each iteration).
-- Per-try `evaluation_result.json` write remains the persistence boundary.
-- **No reading JSON back mid-loop** — parent selection and feedback read the in-memory list, not the disk files.
-- Entry shape: since it’s net-new, use a **dict** (or small dataclass) — no legacy tuple unpacks to break, and future fields (generation, niche, score…) add cleanly. Each entry carries at least: `try_id`, `candidate`, `result`, `parent_try_id`.
-- `parent_try_id`: set by the runner at append time (not the evaluator). Baseline seed = `None` (it is the root). Implicit tree — lineage is reconstructable from the pointers; no explicit tree/graph object is built.
+10. Paste `get_pareto`'s (and/or `pareto_frontier_try_ids`'s) signature and the exact structure it expects for its input rows (the scout notes suggested `list[(try_id, metrics_dict)]` plus a `metric_policy` dict — confirm or correct). Show how it reads each row.
 
-**Open / to confirm:** whether per-try JSON is already written by current code, or only happens because tries are run one-at-a-time by hand right now.
+**Feasibility check (end of chunk):** In 2-3 sentences: given an in-memory list of archive entries, can the runner build `get_pareto`'s expected input by filtering to `status=="ok"` and reshaping — WITHOUT modifying `get_pareto` itself? Note the exact shape the runner must produce.
+
+---
+
+## Final output
+
+After the 4 chunks, give a one-paragraph summary: which of the planned additions are clean drop-ins vs. which hit an obstacle that needs a design revisit. List any clarifying questions you'd want answered before implementation.
