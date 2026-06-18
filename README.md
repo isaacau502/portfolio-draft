@@ -1,99 +1,125 @@
-# Scout: map the run-output directory machinery
+# Visibility Suite — Coding-Agent Instruction Set
 
-You're loading context for an upcoming change to how SensorFlow organizes a run's output directory. **Do not make any change this pass.** Your only job is to read the code and report an accurate map of how `runs/<run_name>/` is currently produced.
+## Background (read first — this is a fresh session)
 
-## Background
-SensorFlow is an LLM-driven mutation loop. The runner iterates: select a parent candidate, mutate it into a new candidate `.py` (via a Bedrock LLM call), evaluate it, append the result to an in-memory archive. Each iteration is a "try." There is also a `--no-mutate` mode used to smoke-test the framework without LLM calls. Every run writes a directory tree under `runs/<run_name>/`.
+**What SensorFlow is.** SensorFlow is an LLM-driven program-evolution loop. A *runner* improves an ML candidate script (feature selection + decision-tree training on a sensor classification task) over many iterations. Each iteration — a **"try"** — does: select a parent from the current Pareto frontier → **mutate** it into a new candidate `.py` via an LLM call (Amazon Bedrock) → **evaluate** the candidate (trains/evaluates the model, returns a metrics dict + a status) → append the result to an in-memory **archive** (a list of per-try entries). Optimization is **multi-objective** over a `metric_policy` (e.g. accuracy = maximize, node-count = minimize, depth = minimize); "best" is the Pareto frontier, not a single score. The seed/baseline is **`try_000`** — a normal archive entry with `parent_try_id = None`, evaluated once before the loop starts. A `--no-mutate` mode runs the same loop but *copies* the parent instead of calling the LLM (a cheap framework smoke-test). Output lands under `runs/<run>/`, with per-try directories and a `summary.json`.
 
-## What to map and report
-For each item give `file:line` and a one-line description.
+**Why we're building this suite.** The loop runs, but right now it doesn't beat the baseline on any objective. We don't yet know whether that's because the *machinery* can't produce improvement, or because the *baseline is already maxed out* (no headroom left to find). To settle it, we'll run the loop from a deliberately **crippled baseline** and watch whether it climbs back toward the real baseline's numbers — climbs → machinery works, real baseline was just saturated; stays flat despite obvious headroom → the machinery is the problem. **This suite is the instrumentation that lets us read that diagnostic.** Everything below exists to make a climb (or its absence) visible: a per-try table, per-try timing, a success/failure tally, and a Pareto plot that shows the frontier moving over iterations toward a target. That purpose is *why* the plot choices later (color points by try index, "outwards = better", mark the seed and a baseline-target reference) are what they are — they make movement legible at a glance. Build for that purpose; add nothing beyond it.
 
-1. **Run-root files** — what gets written directly under `runs/<run>/` (e.g. a baseline source snapshot, a run summary, a frontier plot), and where each write happens.
-2. **Baseline handling** — every place the baseline is treated differently from a normal try: its source snapshot, its result directory, its candidate-output directory.
-3. **Per-try structure** — for a normal try, every file and dir created under it: the candidate source, the raw LLM response, the runner's result JSON (and the subdir it sits in), and the candidate's own output dump dir.
-4. **Dump-dir name derivation** — the exact expression that names the directory the candidate writes its ~18 output files into. Report whether that name is computed in **one** place (then passed around via `context["output_dir"]`) or **reconstructed independently** anywhere else, e.g. the metrics parser rebuilding the path. *This is the single most important thing to get right.*
-5. **Metrics parser** — which file it reads to extract the canonical metrics, and from which directory.
-6. **`--no-mutate` path** — the flag plumbing, the branch it takes, and every directory it creates that a normal run does not.
-7. **Readers of these paths** — grep the repo for each of: `baseline_eval`, `seed_candidate_eval`, `mutated_artifact_eval`, `candidate_eval`, `mutated_artifact`, `seed_candidate.py`, `_eval`, `evaluation_result.json`, `output_dir`. For every hit say whether it **writes**, **reads**, or just **mentions** the path. Include tests, docs, plotting code, and any summary writer.
+---
 
-## Known anchors (from an earlier session — VERIFY each, they may have moved)
-- `runner.py:48` — `try_dir()` builds `tries/try_{id:03d}`
-- metrics parser `_parse_metrics_from_log` ≈ `runner.py:136` — reads `outdir/"evaluation_log.txt"`
-- evaluator `evaluate_classifier_sensorflow.py:78` ≈ `outdir = candidate_path.parent / (candidate_path.stem + "_eval")`
-- mutation engine `py_mutation_engine.py:141` ≈ `mutate(parent, prompt, output_dir) -> Path`
+## What you're building
 
-## Output
-A concise map covering items 1–7, each finding as `path:line — write/read/mention — note`. End with a short **"Surprises"** list: anything that contradicts the picture above, especially any second place the dump-dir name is derived. **Make no edits.**
+Build a thin visibility suite for SensorFlow runs. Every design decision below is already made — **do not invent alternatives, do not refactor beyond what's specified, do not rename anything.** If something can't be done as written, stop and report rather than improvising.
 
+Scope is four components, built in dependency order: timing capture → CSV table → Pareto plot → run tally. (A best-so-far line plot was considered and deliberately cut — do **not** build it.)
 
+## Model ratings
 
+| Chunk | Task | Model | Why |
+|---|---|---|---|
+| 0 | Orientation / locate anchors | **Haiku** | Pure read + grep; no edits. |
+| 1 | Timing instrumentation | **Haiku** | Two `perf_counter` wraps; mechanical. |
+| 2 | `tries.csv` | **Haiku** | `DictWriter` + append; fully specified. |
+| 3 | Pareto plot upgrade | **Haiku ok, Sonnet if you want it right first-pass** | Matplotlib (axis inversion + frontier line + colorbar) is easy to get subtly wrong. Haiku can do it from this spec, but eyeball the PNG. |
+| 4 | Success/fail tally | **Haiku** | Two counts + JSON write; trivial. |
 
-# Edit: reorganize the run-output directory layout
+Strong Haiku lean overall. Chunk 3 is the only place a model bump buys you fewer iterations.
 
-The current layout has already been mapped (scout pass; findings are in this thread). Now apply the reorg below. Make the smallest edits that achieve the target — prefer changing path construction in framework code over moving files after the fact.
+---
 
-## Scope
-- You **may** change: directory names and placement chosen by the runner and evaluator framework; where the runner writes `evaluation_result.json`; how the candidate output-dir name is derived.
-- You **must NOT** change the contents or internal filenames of the candidate's output dump (~18 files: `decision_tree_*`, `evaluation_log.txt`, `log_*`, `confusion_matrix_snippets*`, `*_with_prediction.csv`, etc.). Only the **directory name** changes.
-- You **must NOT** edit the logic of LLM-generated candidate scripts. They already honor `context["output_dir"]`; that contract stays intact.
+## Chunk 0 — Orientation (Haiku, no edits)
 
-## Target layout
+Locate and report each, with `file:line`. Later chunks depend on these being exact. Make no edits.
 
-```
-runs/<run>/
-├── summary.json                 # unchanged, stays at root
-├── pareto.png                   # unchanged, stays at root
-└── tries/
-    ├── try_000/                 # baseline is now just try 0
-    │   ├── candidate.py
-    │   ├── evaluation_result.json   # runner result, FLAT (no subdir)
-    │   └── eval_outputs/            # the ~18-file dump, contents UNCHANGED
-    ├── try_001/
-    │   ├── candidate.py
-    │   ├── llm_response.json        # ABSENT under --no-mutate
-    │   ├── evaluation_result.json
-    │   └── eval_outputs/
-    └── try_NNN/ …
+1. **Per-try archive-append site** — where each try's entry (with `try_id`, `parent_try_id`, `status`, metrics/result) is built and appended to the in-memory archive. Report the function name and whether a `record(...)`-style helper exists or it's inlined in the loop.
+2. **Runner call sites** for `evaluate(candidate)` and the mutation/LLM call (`mutate(parent, …)`), each `file:line`.
+3. **Run-directory init** — where `runs/<run>/` is created at run start (a place to write a CSV header exactly once).
+4. **End-of-run summary writer** — where `summary.json` is written.
+5. **Pareto plotting** — the existing `plot_pareto` function (expected in `get_pareto.py`) and `pareto_frontier_try_ids`; report `file:line` and what `plot_pareto` currently draws and where it saves.
+6. **Metric names** — the actual keys in `metric_policy` and in the evaluator's returned metrics dict. Report the current names for accuracy, node-count, and depth. (Note: a rename of `max_depth`/`max_leaf_nodes` is a *separate, out-of-scope* task — every chunk below uses whatever names exist **now**.)
+7. **Token usage** — whether the Bedrock response object exposes token counts, and the access path if so.
+
+Output: `path:line — note` per item. No edits.
+
+---
+
+## Chunk 1 — Timing instrumentation (Haiku) — depends on Chunk 0
+
+In the runner loop, wrap the two call sites with `time.perf_counter()` (not `time.time()`):
+
+```python
+t0 = time.perf_counter()
+result = evaluate(candidate)
+eval_time_s = time.perf_counter() - t0
 ```
 
-## Mapping (old → new)
+and identically around the mutate/LLM call → `llm_time_s`.
 
-| old | new |
-|---|---|
-| root `seed_candidate.py` | `tries/try_000/candidate.py` |
-| `baseline_eval/evaluation_result.json` | `tries/try_000/evaluation_result.json` |
-| `seed_candidate_eval/` | `tries/try_000/eval_outputs/` |
-| `tries/try_NNN/mutated_artifact_eval/evaluation_result.json` | `tries/try_NNN/evaluation_result.json` |
-| `tries/try_NNN/candidate_eval/` | `tries/try_NNN/eval_outputs/` |
-| `mutated_artifact/`, root `mutated_artifact_eval/` | **deleted** (see edit E) |
+Add three fields to the per-try archive entry (at the append site from Chunk 0):
+- `eval_time_s` — float, always present.
+- `llm_time_s` — float; **`None` for try_000 (baseline) and any try with no LLM call** (e.g. the `--no-mutate` copy step).
+- `tokens` — total token count from the Bedrock response if Chunk 0 found it exposed; otherwise `None`.
 
-`summary.json` and `pareto.png` stay at the run root, unchanged.
+Constraints: measure **only at the runner call sites** — do not measure inside the evaluator or mutation engine, and do not change their return contracts.
 
-## Edits (in order)
+Files: runner only.
+Verify: every entry carries `eval_time_s` (float), `llm_time_s` (float or `None`), `tokens` (int or `None`).
 
-**A. Fold baseline into `try_000`.** Route the baseline through the same try machinery as a try with id `0`. Its source becomes `tries/try_000/candidate.py` (drop the root `seed_candidate.py` snapshot). Remove the `baseline_eval/` special case.
+---
 
-**B. Flatten the runner result.** Write `evaluation_result.json` directly to `tries/try_{id:03d}/evaluation_result.json`. Remove the `mutated_artifact_eval/` (and `baseline_eval/`) intermediate result subdir.
+## Chunk 2 — `tries.csv` (Haiku) — depends on Chunk 1
 
-**C. Rename the dump dir to `eval_outputs/`.** Change the dump-dir derivation to a fixed name under the candidate's own try dir, e.g. `outdir = candidate_path.parent / "eval_outputs"` instead of `<stem>_eval`. Since each candidate now lives at `tries/try_{id:03d}/candidate.py`, this yields `tries/try_{id:03d}/eval_outputs/` for baseline and tries alike. **Rename no file inside this dir.** If the scout found the name derived in more than one place, change all of them identically.
+Write one flat CSV, one row per try, appended live.
 
-**D. Delete dead scaffolding.** Remove creation of `mutated_artifact/` and the root `mutated_artifact_eval/` entirely; they no longer exist in either mode.
+- **Path:** `runs/<run>/tries.csv`.
+- **Columns, in this order:** `try_id, parent_try_id, status`, then one column per `metric_policy` key in policy order (using the current metric names from Chunk 0), then `eval_time_s, llm_time_s, tokens, failure_reason`.
+- **Header:** written exactly once, at run-directory init (Chunk 0 #3).
+- **Writer:** `csv.DictWriter` with `restval=''` so failed tries (metrics `None`) leave their metric cells blank.
+- **Per-try row** (at the append site): pull metric values from the entry's metrics dict by policy key (missing → blank via `restval`); include `status`, the three timing/token fields, and a **one-line** `failure_reason` (first line only — the full traceback stays in the per-try JSON; do not duplicate it here).
+- **Do not** write confusion-matrix raw counts or any nested fields into the CSV.
+- **Do not** rename any metric key.
 
-**E. Rewrite `--no-mutate` to flow through the normal loop.** It must produce `tries/try_001/`, `try_002/`, … with the identical structure as a real run. Differences only:
-- At the mutate step, **copy the selected parent's `candidate.py` to `tries/try_{id:03d}/candidate.py`** instead of calling Bedrock. Parent selection is an existing, separate loop step that already runs every iteration — reuse it; add no new selection logic.
-- **Skip writing `llm_response.json`.**
-- Everything downstream (evaluate → write `evaluation_result.json` → `eval_outputs/` → archive append → Pareto) is shared with the real path, unchanged.
-Delete the old single-shot `--no-mutate` branch that used `mutated_artifact*`.
+Files: runner (and the run-init location for the header).
+Verify: header written once; a successful row has metric values; a failed row has blank metric cells + a one-line reason; the file is appended per try (not rewritten); `pandas.read_csv` parses it cleanly.
 
-**F. Fix the readers.** Update every read-side reference the scout found (plotting that loads images from the dump dir, any `summary.json` path fields, tests, docs) to the new paths. The metrics parser must still read `evaluation_log.txt`, now from `eval_outputs/`.
+---
 
-## Verify before finishing
-1. Run root holds only `summary.json` and `pareto.png`.
-2. `tries/try_000/` holds `candidate.py`, `evaluation_result.json`, `eval_outputs/`; no `baseline_eval/`, `seed_candidate_eval/`, or root `seed_candidate.py` remain anywhere.
-3. A normal try holds exactly `candidate.py`, `llm_response.json`, `evaluation_result.json`, `eval_outputs/` — no `mutated_artifact_eval/` or `candidate_eval/`.
-4. `mutated_artifact/` and root `mutated_artifact_eval/` are gone.
-5. `eval_outputs/` contents are the same set of files as the old dump dir — only the directory name changed.
-6. Repo grep for `baseline_eval`, `seed_candidate_eval`, `mutated_artifact_eval`, `candidate_eval`, `mutated_artifact`, `seed_candidate.py` returns zero live references (changelog/comments aside).
-7. A short `--no-mutate` run produces `tries/try_001…NNN/`, each with the four expected entries minus `llm_response.json`.
+## Chunk 3 — Pareto plot upgrade (Haiku ok / Sonnet recommended) — depends on Chunk 2
 
-If the scout findings contradict this plan — especially a second place the dump-dir name is derived — **stop and surface it before editing.**
+Upgrade the existing `plot_pareto` (Chunk 0 #5) to read **from `tries.csv`** and render the diagnostic view. All choices are fixed:
+
+- **Axes:** accuracy on x, node-count on y (current metric names). **Do not plot depth.**
+- **Points:** scatter all successful candidates (`status == "ok"`); skip failures (they have no coordinates).
+- **Color:** by `try_id`, sequential colormap `viridis`, with a colorbar labeled **"try index"**.
+- **"Outwards is better":** leave the accuracy axis normal (higher = right); **invert the node-count axis** (`ax.invert_yaxis()`) so fewer nodes points outward. Good corner = top-right.
+- **Frontier line:** draw the final Pareto frontier through the non-dominated successful points. Reuse `pareto_frontier_try_ids` for membership — **do not modify that function; this is display-only.**
+- **Seed marker:** mark `try_id == 0` with a distinct marker (e.g. star), label "seed".
+- **Baseline reference:** accept a parameter `baseline_ref=(accuracy, nodes)`; if provided, mark it with a distinct marker (e.g. ✕) labeled "baseline target"; if `None`, omit. This is the *real* baseline's known numbers — it is **not** in `tries.csv`, so it must come in as a function argument (have the caller pass it; a constant is fine).
+- **Save** to `runs/<run>/pareto.png` (same path as before).
+- Reads `tries.csv` only — does not touch the live archive or the frontier logic.
+
+Files: wherever `plot_pareto` lives (likely `get_pareto.py`), plus the caller that now passes `baseline_ref`.
+Verify: PNG renders; points colored by `try_id` with a "try index" colorbar; node axis inverted so fewer-nodes is outward; frontier line through the non-dominated points; seed and (if passed) baseline markers present; no failed candidates plotted.
+
+---
+
+## Chunk 4 — Success/fail tally (Haiku) — depends on Chunk 2
+
+At end of run, count archive entries by status:
+- `n_ok = count(status == "ok")`, `n_error = count(status != "ok")`, `n_tries = total`.
+- Print a one-line summary to stdout.
+- Add to `summary.json` (Chunk 0 #4): `n_tries`, `n_ok`, `n_error`, and `failure_reasons` (the list of one-line reasons for the failed tries). **No** failure-type classification — just the counts and the raw one-line reasons.
+
+Files: the `summary.json` writer.
+Verify: `summary.json` contains the counts and `n_ok + n_error == n_tries`.
+
+---
+
+## Global guardrails (apply to every chunk)
+
+- Do not modify the evaluator or mutation-engine return contracts.
+- Do not rename metric keys — the `max_depth`/`max_leaf_nodes` rename is a separate task, out of scope here.
+- Plots read `tries.csv`, never the live archive — keep capture and view decoupled so plots can be regenerated without re-running.
+- The axis flip in Chunk 3 is display-only; `pareto_frontier_try_ids` is untouched.
+- The best-so-far line plot is intentionally excluded. Do not add it.
