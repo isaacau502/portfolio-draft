@@ -1,4 +1,22 @@
-# Visibility Suite — Coding-Agent Instruction Set
+
+Read-only recon on the SensorFlow repo (mainly `runner.py`, `evaluate_classifier_sensorflow.py`, `py_mutation_engine.py`, `get_pareto.py`) — don't modify anything, just report file + function + a one-line description for each, and say so explicitly if something doesn't exist: (1) the try-entry fields and whether there's a helper to fetch an entry by try_id or get the baseline `try_000`; (2) where `METRIC_POLICY` lives and its exact current metric keys + max/min directions; (3) any existing code that renders a metrics dict to a string; (4) the Pareto frontier function's name and what it returns; (5) the mutate/LLM function's signature (does it take a parent path or a prompt string?) and where the prompt is currently built; (6) where the seed-42 RNG is set and whether it's one shared instance or scattered `random.*` calls; (7) where the main loop lives and how `try_000` is evaluated/recorded before it.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Visibility Suite — Coding-Agent Instruction Set
 
 ## Background (read first — this is a fresh session)
 
