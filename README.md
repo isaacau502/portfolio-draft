@@ -1,4 +1,43 @@
+Here's the scout brief — paste it to your scouting agent. It gathers everything the build recipe's per-chunk feasibility checks need, in one read-only pass.
+
+---
+
+**Read-only reconnaissance of the SensorFlow codebase.** Do not modify anything — only read and report. The goal is to confirm the facts an operator-layer build will rely on, and flag any mismatch. For each item, report the file + function/line + a one-line answer; if something doesn't exist or differs from what's described, say so explicitly (a mismatch is the most useful thing you can find). Keep the whole report skimmable.
+
+1. **Shared RNG** — find the module-level seeded RNG (expected `random.Random(42)`). Report its exact variable name and confirm `select_parent` uses it for the frontier pick.
+
+2. **`select_parent`** — report its exact current signature and what it returns (an archive entry? a try_id? a path?). Report what argument represents the successful/frontier entries it picks from, and how that list is built at the call site.
+
+3. **`summarize_feedback`** — report its exact signature, and **paste the format of its output**: the block structure and, specifically, **how it renders a metrics dict into text** (the operator feedback builders must reuse that exact score format). Note whether it already shows frontier rows and parent scores.
+
+4. **Archive entry shape** — confirm a single entry is a dict with keys `try_id`, `candidate`, `result`, `parent_try_id`. Confirm `result` is the eval dict and that status/metrics are nested as `entry["result"]["status"]` and `entry["result"]["metrics"]` (NOT top-level). Report `try_id` type (int or string).
+
+5. **Candidate source path** — confirm the candidate `.py` is at `tries/try_{id:03d}/candidate.py` and is also stored in `entry["candidate"]`. Confirm `open(entry["candidate"]).read()` yields the source.
+
+6. **Pareto function** — confirm `pareto_frontier_try_ids(rows, metric_policy)` in `get_pareto.py` takes `rows = list[(try_id, metrics_dict)]` and returns a list of try_ids. Report where the loop currently calls it, and **whether a try_id→entry lookup is available at that point** (needed to get frontier *entries*, not just ids).
+
+7. **`metric_policy`** — report where it's defined and its exact keys + `"max"`/`"min"` values (expected: `accuracy` max, `f1_score_class1` max, `depth` min, `num_leaf_nodes` min).
+
+8. **Mutate call** — report the exact signature of the mutation function and the current call site in the loop. Confirm it takes one parent (path) plus a feedback/prompt string, and report exactly where `summarize_feedback`'s output is passed in (the operator feedback will replace it there).
+
+9. **Loop body** — report the lines of the per-try loop that call `select_parent`, `summarize_feedback`, and the mutate function, so the operator wiring knows what it's replacing.
+
+10. **`tries.csv`** — report the current column list and where/how a row is written (the operation log will add two columns).
+
+11. **Confusion-matrix counts** — confirm successful-eval metrics include the four `nb_segments_*` keys, and that they are NOT in `metric_policy` (so the feedback builders can exclude them from displayed scores).
+
+For each item, if the reality differs from the description above, STOP flagging it inline — list all mismatches together at the end so they can be reconciled into the recipe before any building starts.
+
+
+
+
+
+
 # SensorFlow — Operator-First Search: Coding Agent Recipe
+
+
+
+
 
 > **Purpose of this doc.** A build recipe for implementing the operator-first prompted-search
 > refactor (see the companion design doc). It is written to be followed by a **lightweight coding
