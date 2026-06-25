@@ -351,3 +351,29 @@ repair; eval/record/visibility unchanged.
 **Model split:** Haiku for 0–5 and 8; **Sonnet for 6 (verbatim prompts + renderer reuse + attribute
 access) and 7 (live control-flow edit, feedback-only swap).** Bias is Haiku; the two Sonnet chunks
 are the ones where a silent Haiku slip would cost debugging time later.
+
+
+
+Got it — keep the prints in, no `# SMOKE` markers, no cleanup step. Here's the trimmed brief:
+
+---
+
+**Goal: verify the operator layer is live and correct via two smoke runs, with evidence in stdout and `tries.csv`. Add brief permanent print lines for observability.**
+
+**Step 1 — add observability prints.**
+In the per-try loop, after `op = choose_operation(...)` and parent selection, add one concise line:
+```
+print(f"[op] try={try_id} op={op} parents={[p['try_id'] for p in chosen]} "
+      f"target={target_metric if op=='improve' else '-'} frontier={len(frontier_ids)} fails={len(recent_failures(archive))}")
+```
+Match the real in-scope variable names.
+
+**Step 2 — Smoke A: framework integrity (no LLM).** Run `--no-mutate` (or the parent-copy path) for **5 tries**. Confirm: completes without exception; `[op]` prints every try with `op` in {repair, improve, combine}; improve `target=` cycles (not stuck); `tries.csv` has populated `operation` + `parent_try_ids` columns, existing columns unchanged; no error around `entry["result"].status`/`.metrics`. Paste the 5 `[op]` lines + the new CSV columns.
+
+**Step 3 — Smoke B: real run, 8–10 tries (LLM on).** Confirm: completes without unhandled exceptions; failures recorded with `status="error"` (don't crash the loop); all three ops appear in the `operation` column (if frontier never hits 3, combine may not fire — say so explicitly, don't call it a pass); at least one improve target differs from a prior improve's; combine rows show two distinct parent ids, repair/improve one. Paste the `[op]` lines, the CSV columns, and a one-line per-op tally.
+
+**Step 4 — verdict.** State plainly whether the layer is (a) running and (b) selecting correctly, citing the evidence. If anything looks wrong, report and stop — don't tweak operator logic to force a pass.
+
+---
+
+Same two watch-points when it reports: improve `target=` actually cycling (stuck-on-`accuracy` = `improve_count` not advancing), and failures landing in the archive without crashing.
