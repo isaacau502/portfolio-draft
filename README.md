@@ -377,3 +377,28 @@ Match the real in-scope variable names.
 ---
 
 Same two watch-points when it reports: improve `target=` actually cycling (stuck-on-`accuracy` = `improve_count` not advancing), and failures landing in the archive without crashing.
+
+
+
+
+Two fixes. Do not add a preamble-stripper or any code-extraction logic — repair will handle malformed candidates itself. Read-only confirm each feasibility point before editing; if reality differs from what's stated, STOP and report.
+Fix 1 — per-try failure isolation (stop the crash).
+
+In the per-try loop body of run_mutation_search (the loop at ~runner.py:1019, body ~458), wrap the work done for a single try — selection, feedback build, mutate, evaluate, record — in a try/except Exception as e. On exception: print one line (print(f"[try {try_id}] skipped: {e}")), and continue to the next try. One bad try must never kill the run.
+
+Don't wrap the whole loop — wrap the body, so only the failing try is skipped.
+Don't swallow silently — print the try id + error.
+Feasibility: report the current loop-body structure (control flow only) and confirm there's no existing try/except already there.
+
+Fix 2 — failure entries carry their candidate path, so repair can fix them.
+
+Currently a mutation-phase failure records an archive entry with candidate = None, so build_repair_feedback's open(fail_entry["candidate"]) throws. The intent: when a candidate file was written to disk (even if it later failed validation — e.g. prose preamble + syntax error), the failure entry should store that path, so repair can open the malformed source and fix it.
+
+Find where the failure/error archive entry is constructed (compare to the success-path entry construction). Report whether candidate is set on the failure path or left None.
+Find where the candidate .py is written to disk relative to where validation throws. Report: on a validation failure, does the file exist on disk? (From try 6, it does — try_006/candidate.py exists with the prose in it.)
+If the file exists, set the failure entry's candidate to that path (same value the success path would use). Do not change the success path.
+Feasibility: report the file:line of both the failure-entry construction and the candidate-write, and confirm the written path is in scope at the entry construction.
+
+After both fixes, repair works end-to-end: a malformed candidate (preamble, bad char, etc.) is recorded with its path → recent_failures surfaces it → build_repair_feedback opens the file → the LLM sees the source + the failure_reason and fixes it (e.g. strips the narration). No filter, no stripper needed.
+Verify: re-run 8–10 tries. Confirm: (1) if any try throws, you see the [try N] skipped line and the run continues to completion; (2) a failed candidate's entry has a non-null candidate path; (3) when repair fires on such an entry, it builds feedback without TypeError and produces a fixed candidate. Report the [op] lines and any skip lines.
+Don't: don't add code-extraction/preamble-stripping anywhere; don't filter failures out of the repair pool (repair is meant to fix them); don't touch the success path or the mutation engine's output handling.
