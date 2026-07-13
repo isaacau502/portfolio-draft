@@ -1,10 +1,10 @@
 # Multi-Init — Full Spec (SensorFlow)
 
-> **Single handoff file.** START WITH THE APPENDIX (pre-handoff scout — read-only, report back,
-> build nothing). Then: Part I is the design doc (Terminology, locked decisions M1–M9,
+> **Single handoff file.** The pre-handoff scout (appendix) is COMPLETED; its findings are
+> folded in. Build order: **Chunk R (rename) → Chunk 1 → Chunk 2**. Part I is the design doc (Terminology, locked decisions M1–M9,
 > recipe-time SCOUTs). Part II is the coding recipe (2 chunks, [MATCH]/[SCOUT] tags, per-chunk
 > verification, and a FLAGS section listing the human decisions still open). Read Part I for
-> the *why*, execute from Part II — only after the scout report is reviewed. Assumes shipped: `novelty` operator, grace period +
+> the *why*, execute from Part II. Assumes shipped: `novelty` operator, grace period +
 > provenance/`lineage_id` (`make_entry`), adaptive-thinking Bedrock config.
 > Vocabulary: **init candidate** / **baseline** (`--baseline`) / **seed = RNG only**.
 
@@ -117,7 +117,9 @@ and doesn't generalize to baseline-less problems.)
   disregard a supplied init candidate (rejected: overloading one flag with two decisions).
 
 ### M8 — Init provenance: differentiated
-Generated init candidates mint `init_gen_*` lineage ids; the supplied baseline mints `init_baseline` (or equivalent).
+Generated init candidates mint `init_gen_*` lineage ids; the supplied baseline mints
+`init_baseline` (rename of today's `"seed0"` — Chunk R; legacy `seed0` rows in old archives read
+as unprotected roots, no migration).
 The report reads differently for "your baseline fell short" vs "our generated attempt
 fell short," so provenance distinguishes them. `origin` = "init" family either way.
 
@@ -160,39 +162,55 @@ generation failures
 
 ---
 
+## CHUNK R — Rename sweep (behavior-neutral; run before Chunk 1)
+Scout finding: the codebase already overloads "seed" (`operation="seed"`, `lineage_id="seed0"`)
+— the word reserved for the RNG. Isolate ALL renames here so Chunks 1/2 stay attributable.
+- `--baseline-py` → `--baseline` (argparse + the scouted references: runner.py main/parse sites,
+  test_budget_stopping.py, _smoke_runner.py; no docs hits found).
+- Baseline entry: `operation="seed"` → `operation="init"`; `lineage_id="seed0"` →
+  `"init_baseline"` (the `make_entry(try_id=0, ...)` call in the baseline init path).
+- Grace-period compat updated to match: readers treating missing/legacy lineage as root must now
+  accept BOTH legacy `"seed0"` (old archives) and `"init_baseline"` — legacy rows read as
+  unprotected roots, no migration.
+- Summary-accounting sites that key on `try 0 == baseline` (metric-delta exclusion, final delta
+  print — scouted at runner.py ~1060/1308): update any literal `"seed"`/`"seed0"` matches.
+- **Verification:** full legacy-mode run (`--baseline` only) is behavior-identical; tries.csv
+  shows `init`/`init_baseline`; grep proves no live `"seed"` operation strings remain (RNG seed
+  untouched).
+
 ## CHUNK 1 — M2 + M3: contract extension + universal injection
 *(prompt-only; shippable alone; immediately cuts novelty crash rate. CHECKPOINT after this
 chunk before Chunk 2.)*
 
-### Step 1.1 — [SCOUT] Locate the existing contract summary
-Find where the current contract text lives (the evaluator brief + interface contract that
-mutation prompts already inject — likely a constant/template in `py_mutation_engine.py` or a
-text file the builders read). Report: its exact location, current content, and the injection
-mechanism (which builders include it, via what variable/function).
+### Step 1.1 — Ground truth (scout CONFIRMED — verify, don't rediscover)
+The contract lives in `evaluation_contract.md`, an **LLM-generated cached artifact** regenerated
+from the evaluator on hash change, loaded via `load_eval_context()` (runner.py) and prepended by
+`main()` as ONE shared string into every `mutate(...)` call (search_prompt.txt assembly). The
+feedback builders do NOT inject it. Confirm this still holds, then work at these two sites only:
+the contract-**generation** prompt, and the single `main()` injection point.
 
-### Step 1.2 — Extend the contract (agent AUDITS, human signs off)
-Write the two known missing sections, then audit for more:
-- **Data contract**: read the baseline candidate's code (`--baseline-py` file / try_000) and the
-  evaluator; document exactly: what `context` carries (keys, types), the data file paths/format,
-  feature matrix + label shape, class balance note if the contract mentions it. A generated init
-  candidate must be able to load data from THIS text alone.
-- **Serialization constraints**: state as hard rules: (1) any custom class MUST be module-level —
-  classes defined inside functions (`<locals>`) cannot be pickled, ever; (2) prefer bare sklearn
-  estimators (the evaluator's size introspection reads attributes like `tree_`/`coef_`);
-  (3) save via the existing convention (joblib.dump to model.pkl) exactly as the interface
-  contract states.
-- **AUDIT**: compare the assembled contract against the real evaluator + runner behavior. If you
-  find contract-relevant facts a from-scratch candidate would need and the text omits (e.g.
-  timeout budget, expected metric names, working-directory assumptions, allowed imports),
-  DRAFT each as a proposed section and STOP — present them as OPTIONS for human sign-off. Do
-  NOT silently add sections.
+### Step 1.2 — Extend the contract VIA ITS GENERATOR (D1)
+The contract file regenerates, so never hand-edit it. Instead extend the contract-generation
+prompt so the regenerated artifact itself contains the new rules:
+- **Serialization constraints — verbatim must-include.** Pass the rules to the generator as
+  fixed text it must reproduce EXACTLY (not "mention serialization" — paraphrase drift would
+  soften hard rules): (1) custom classes MUST be module-level; classes defined inside functions
+  (`<locals>`) can never be pickled; (2) prefer bare sklearn estimators (size introspection
+  reads `tree_`/`coef_`-style attributes); (3) save via joblib.dump to model.pkl per the
+  interface contract.
+- **Data contract:** the existing artifact already has an "input feature contract" section.
+  AUDIT whether it is sufficient for a from-scratch candidate (exact `context` keys, data
+  paths/format, label shape). If gaps exist, extend the generator prompt to cover them.
+- **AUDIT (unchanged):** compare the regenerated contract against real evaluator/runner
+  behavior; DRAFT any further proposed sections and STOP for human sign-off. Do not silently add.
+- Force a regeneration (hash bump or cache delete) and eyeball the new artifact: verbatim rules
+  present, exactly as supplied.
 
-### Step 1.3 — Inject into every operator prompt (M3)
-Wire the extended contract into `build_improve_feedback`, `build_combine_feedback`,
-`build_repair_feedback`, `build_novelty_feedback` — **[MATCH]** the existing injection pattern
-found in 1.1 (if some builders already include the old summary, extend in place; if any builder
-lacks it, add it in the same position/style as the others). One source of truth; builders
-reference it, never copy it.
+### Step 1.3 — Injection (M3): already structurally done — verify + extend to init-generation
+Scout: `main()` already prepends the contract into EVERY operation's prompt via one shared
+string. No per-builder wiring needed. Only: (a) confirm all four current operations receive it
+(prompt.txt spot-check), and (b) in Chunk 2, route the new init-generation prompt through the
+SAME prepend (it is the one operation main()'s loop doesn't cover, since it runs pre-loop).
 
 ### Chunk 1 verification
 1. Run a short search (`--tries 10`+). Open `tries/try_*/prompt.txt` for one try of EACH
@@ -216,11 +234,9 @@ Report before coding:
   summary code) — list the places; the human decides if any need updating.
 - How the budget tracker records LLM cost, so generation calls can be charged to it.
 
-### Step 2.1 — CLI (M7)
-- Rename `--baseline-py` → `--baseline` (argparse + every reference; grep the repo including
-  docs/scripts). Hard rename, no alias — v1 raises loudly on the old flag (argparse will).
-- Add `--gen-inits N` (int, default `0` = today's behavior unchanged). Validate: `--gen-inits 0`
-  with no `--baseline` is an error ("no init candidates at all") — raise loudly.
+### Step 2.1 — CLI (M7) *(rename already done in Chunk R)*
+Add `--gen-inits N` (int, default `0` = today's behavior unchanged). Validate: `--gen-inits 0`
+with no `--baseline` → raise loudly ("no init candidates at all").
 
 ### Step 2.2 — NEW: `build_init_generation_prompt(contract_text) -> str`  [PROMPT]
 In `py_mutation_engine.py`, beside the other builders. Contents, in order:
@@ -236,12 +252,14 @@ In `py_mutation_engine.py`, beside the other builders. Contents, in order:
    block only, no prose) so the existing extraction path parses it unchanged.
 
 ### Step 2.3 — NEW: `generate_init_candidates(n, contract_text, tracker, out_dir) -> list[path]`
-In `runner.py`, called once before the main loop when `--gen-inits > 0`:
+In `runner.py`, called when `--gen-inits > 0` — **placement (scout item 7): AFTER CostTracker
+construction, BEFORE `run_mutation_search()`** (tracker exists → generation calls are charged;
+loop hasn't started → inits precede all mutations). Do not move the tracker.
 - Loop i in 1..n: build prompt (2.2, with the accumulated diversity list) → call the existing
-  LLM path (**[MATCH]** reuse `mutate()`/its plumbing so `prompt.txt` + `request.json`
-  persistence and cost tracking work identically — do NOT hand-roll a second Bedrock call site;
-  if `mutate()`'s signature is parent-shaped, adapt via its lowest-level reusable function and
-  report which).
+  LLM path — scout-approved shape: a **thin public wrapper around `generate_py_candidate`
+  returning (MutationGenerationResult, usage)** so `prompt.txt` + `llm_response.json` +
+  `raw_api_response.json` persistence AND direct cost capture work for a parentless call. Do
+  NOT hand-roll a second Bedrock call site. Charge usage to the tracker (see placement below).
 - Extract the code with the same extraction used for mutations (**[MATCH]**).
 - **Generation failure** (no parseable code / call error): retry ONCE; on second failure, log
   loudly (`INIT GENERATION FAILED for candidate i — skipping`) and continue (M9). The run
@@ -259,8 +277,11 @@ inventing a third path, and report):
 - `origin`: `"init"` for all of them.
 - `lineage_id`: baseline → `"init_baseline"`; generated → `"init_gen_1"`, `"init_gen_2"`, ….
 - `born_try`: their actual try_ids (see FLAG-2 for numbering).
-- A failed init evaluation is a normal tagged dead-end — NO special handling; `repair` +
-  grace period take it from there (M9).
+- **Failure policy (D4):** a failed GENERATED-init evaluation must **append-and-continue** —
+  it becomes a tagged dead-end that `repair` + grace period pick up (M9). NOTE: today's baseline
+  path hard-exits on eval failure BEFORE appending (scout item 12) — that hard-exit is KEPT for
+  the supplied baseline (broken user input → raise loudly) but must NOT apply to generated
+  inits: route their failures to the normal error-append path, not the exit.
 
 ### Step 2.5 — WIRING: protection broadening (M4)
 In `select_parent`'s protection check (from the grace-period build): broaden the condition from
@@ -268,7 +289,10 @@ novelty-lineage-in-window to **novelty-OR-init-lineage-in-window** — i.e. prot
 `lineage_id` starts with a novelty mint OR `origin == "init"` lineage root, AND
 `current_try - born_try < NOVELTY_PROTECT_N`. Keep max-weight dedupe exactly as built.
 Consider renaming the constant `NOVELTY_PROTECT_N` → `PROTECT_WINDOW_N` (it now covers inits
-too) — do the rename only if it's a constant reference update, nothing behavioral.
+too) — constant-reference update only, nothing behavioral.
+**Window semantics (decided):** N=3 means window length; with `born_try=0` that is protected
+selection at tries 1–2 (~N−1 selections). This is accepted as-is — do NOT "fix" it; the
+constant is tunable later from run data.
 
 ### Chunk 2 verification
 1. **Cold start:** `--gen-inits 2`, no `--baseline`: 2 generated inits evaluated, lineages
@@ -303,14 +327,15 @@ too) — do the rename only if it's a constant reference update, nothing behavio
   sections — they need your sign-off (that's by design, not agent indecision).
 
 ## Build order & models
-Chunk 1 → CHECKPOINT (verify injection + review audit proposals + token delta) → Chunk 2.
+Chunk R (rename, behavior-neutral) → Chunk 1 → CHECKPOINT (regenerated contract eyeballed +
+audit proposals + token delta) → Chunk 2.
 Chunk 1 is prompt/text work — any mid-tier model. Chunk 2 touches the init path + selection —
 use the stronger coding model; the two review points are 2.3's reuse of `mutate()`'s plumbing
 (no second Bedrock call site) and 2.4 routing inits through the existing entry path.
 
 ---
 
-# APPENDIX — PRE-HANDOFF SCOUT (run FIRST, report back, build NOTHING)
+# APPENDIX — PRE-HANDOFF SCOUT [COMPLETED — findings folded into Chunks R/1/2]
 
 Read-only reconnaissance. Answer each item and STOP — findings come back to the human for a
 design check before Chunk 1 starts. If any answer contradicts a locked decision (M1–M9) or a
@@ -337,7 +362,7 @@ recipe assumption, say so explicitly in the report.
 **C. LLM plumbing reuse (feeds Step 2.3)**
 8. What is `mutate()`'s exact signature and which parts are parent-shaped vs generic? Identify
    the lowest-level reusable function for a parentless generation call (so prompt.txt /
-   request.json persistence + cost tracking come for free). If none exists cleanly, report the
+   llm_response.json persistence + cost tracking come for free). If none exists cleanly, report the
    minimal refactor that would create one — as a proposal, not a change.
 9. Where does code-block extraction from the LLM response live, and is it operation-agnostic?
 
