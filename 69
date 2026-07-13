@@ -1,0 +1,261 @@
+# Novelty Grace Period — Full Spec (SensorFlow)
+
+> **Single handoff file.** Part I is the design doc (locked decisions G1–G6, refactors R1–R3,
+> scout findings). Part II is the coding recipe (contracts + 2-chunk build plan). Read Part I
+> for the *why*, execute from Part II. Assumes the `novelty` operator is already shipped;
+> references the SensorFlow Primer.
+
+---
+
+# PART I — DESIGN DOC
+
+## Purpose
+Novel candidates (esp. non-tree architectures) are first-draft solutions that get dominated out
+by the hand-tuned frontier before they can be refined — so every Bedrock dollar the `novelty`
+operator spends is wasted by design. The grace period gives each novel lineage a **bounded,
+fair trial**: for a short window after birth, its descendants are up-weighted as parents so they
+get refined a few times before the frontier judges them on merit.
+
+**Dual purpose (equally important):** produce a *defensible negative result*. If protected novel
+lineages still can't reach the frontier after a fair trial, that is a reportable finding — "we
+refined each novel architecture and it genuinely fell short" — which certifies the incumbent
+(e.g. decision tree) rather than leaving "did we even try?" ambiguous. The grace period is what
+makes that claim honest.
+
+## Prerequisite (confirmed shipped)
+- Serialization fix (sys.path Option A) is in — non-tree candidates survive to evaluation. A
+  grace period would be meaningless otherwise (it would protect a lineage of crashes).
+
+## Locked decisions
+
+### G1 — Window semantics: absolute-N (option "a")
+Protect each novel lineage for a fixed **N tries after its birth**, then it reverts to a normal
+frontier-ruled candidate.
+- **N = 3** (absolute, not a fraction of horizon).
+- Chosen over per-lineage-refinement-count (b), quota (d), and promise-gated (e) because it needs
+  the **least tracking machinery** (see G3) and its mechanism transfers to MAP-Elites (see
+  "Forward reuse"); (b)/(e) stay as graduations if absolute-N proves too crude.
+- **Accepted tradeoff:** absolute N is not scale-invariant — 3 tries is a third of a 10-try run
+  and 3% of a 100-try run. Acceptable because runs are fixed-size in practice; revisit if run
+  sizes vary widely.
+
+### G2 — Protection mechanism: selection up-weight, not binary eligibility
+A protected lineage is **up-weighted as a parent** relative to frontier members — NOT a binary
+on/off "eligible even if off-frontier" gate.
+- **Flat multiplier (base form):** protected candidates get a higher selection weight than a
+  normal frontier member. **Refined in G5:** the weight scales with frontier size rather than
+  being an absolute constant. One knob (`NOVELTY_PROTECT_WEIGHT`).
+- Chosen over additive bonus and over decay-over-N because: composes cleanly with crowding
+  distance later (both are just multipliers on selection weight), and one knob. Decay (fade-out
+  instead of a cliff at expiry) is the graduation if the expiry cliff turns out to matter at N=3.
+
+### G3 — Tracking: inherited provenance tag + quasi-lineage id (sub-feature)
+Each candidate carries a small **inherited provenance tag**, propagated parent→child. Built as a
+**sub-feature of this grace-period work** (not a standalone project), but designed general enough
+to be reused later (multi-init, MAP-Elites, negative-result reporting).
+
+Tag fields:
+- `origin` — what produced this candidate (e.g. "novelty", "improve", "seed").
+- `born_try` — the try index at which this candidate was created.
+- `lineage_id` — **set once at a lineage's birth and inherited UNCHANGED by every descendant**
+  (unlike `parent_try_id`, which changes each generation). This is the whole quasi-lineage
+  mechanism: grouping candidates by lineage is a **filter on `lineage_id`**, not a graph
+  traversal. A `novelty` birth starts a new `lineage_id`; an `improve` child keeps its parent's.
+
+**Scope = "quasi-lineage" (rung 2), explicitly NOT full genealogy (rung 3).** We can answer
+"what produced this / what family is it / show the family's trajectory" by reading a field or a
+group-by. We do NOT build parent-pointer traversal, ancestor queries, or a DAG engine — that's
+deferred until MAP-Elites (or another feature) actually forces it (primer: no speculative
+abstraction).
+
+**Combine inheritance rule (the one real fork, resolved):** a combined child has two parents,
+possibly with different `lineage_id`s. Rule **(a)**: if **either** parent is a novel/protected
+lineage, the child inherits **that** lineage's id; otherwise inherit the first parent's id
+(deterministic). Rationale: a novel lineage that gets merged via `combine` should keep its
+provenance — combine is a plausible path for a novel architecture to survive into the frontier,
+and the negative-result report wants "this novelty lineage contributed via try X" rather than the
+trail going cold. (Fresh-id and compound-id rejected: fresh loses the novelty trail; compound is
+more than a sub-feature needs.)
+
+Protection check stays **local**: read the candidate's own `born_try`,
+`current_try - born_try < NOVELTY_PROTECT_N`. No aggregation needed for the window itself;
+`lineage_id` grouping is for reporting/reuse, not the protection test.
+
+## Forward reuse (why this substrate, not throwaway)
+The provenance tag (G3) — an inherited, self-describing descriptor read locally at selection time
+— is the same instrument needed by:
+- **multi-init** — attribute each candidate to its origin seed (for fair trials + negative report),
+- **MAP-Elites** — niche/behavior key per candidate (read locally, no aggregation),
+- **negative-result reporting** — group candidates by origin to show each family's trajectory.
+The grace-period *logic* (G1/G2) is throwaway (MAP-Elites replaces temporary protection with
+permanent best-in-niche protection), but the *provenance instrument* (G3) carries forward. The
+grace period is the cheapest first customer for provenance tracking, which is the real missing
+instrument under most of the roadmap. (Crowding distance is the one parked ablation that does NOT
+use it — it operates on frontier positions, not provenance.)
+
+## Constants (named, commented; per project convention — no magic literals)
+- `NOVELTY_PROTECT_N = 3` — tries a novel lineage stays protected after birth.
+- `NOVELTY_PROTECT_WEIGHT = <TBD>` — protection strength, expressed **relative to frontier size**
+  (G5), not an absolute pick-weight. Exact use defined in recipe.
+
+### G4 — Scope: `improve` parent selection only
+The protection up-weight (G2) applies **only to `improve`'s parent selection**. `combine`
+(`pick_frontier_extremes`) and `repair` are untouched.
+- Rationale: the grace period's purpose is *refinement* of young lineages — exactly what
+  `improve` does. `combine` deliberately selects diverse frontier extremes; injecting a
+  protected off-frontier candidate would distort that logic and require touching
+  `pick_frontier_extremes`. Keeping protection to `improve` is targeted and additive.
+
+### G5 — Up-weight mechanism: extend improve's pool + weight, scaled to frontier size
+`improve`'s parent selection is today **uniform-random over the frontier** (no weights).
+Protection changes this to:
+- **Pool = frontier members ∪ currently-protected candidates** (protected candidates eligible
+  even when off-frontier — the point of protection).
+- **Weighted pick** (not uniform): protected candidates get higher pick probability than normal
+  frontier members.
+- **Weight scales with frontier size, not an absolute constant.** A flat multiplier's relative
+  boost decays as the frontier grows (more members dilute the pool); expressing protection
+  strength relative to frontier size keeps a protected lineage's effective shot roughly constant
+  whether the frontier has 3 or 30 members. Exact formula deferred to the recipe.
+- **[SCOUT]** confirm `select_parent`'s current form; this extends it from "uniform over frontier"
+  to "weighted over frontier ∪ protected" — the one real structural change (rest additive).
+
+### G6 — Provenance/quasi-lineage tag is a prerequisite sub-build (built first)
+The inherited provenance tag + `lineage_id` (G3) do **not** exist in the core loop today. The
+recipe builds this **sub-feature** first, before the protection logic:
+- Minimal tag: `origin`, `born_try`, `lineage_id` — set at candidate creation, inherited
+  parent→child, with the combine rule (a) from G3.
+- Kept to rung 2 (group-by, no traversal); reusable by multi-init / MAP-Elites / negative-report,
+  but NOT extracted into a standalone feature/framework — it's a sub-feature of this work.
+- **Recipe ordering:** Chunk 1 = provenance/lineage tag → Chunk 2 = protection logic (protection
+  reads `born_try`).
+
+## Open forks (still to decide)
+- **`NOVELTY_PROTECT_WEIGHT` value + exact formula** — falls out of the real `select_parent`
+  internals (SCOUT in G5).
+- **Tag write-sites (SCOUT)** — (1) where a candidate is created so the tag is set; (2) how
+  children inherit `origin`/`lineage_id` at each operator's mutation point; (3) where a `novelty`
+  birth mints a fresh `lineage_id` and where `combine` applies rule (a).
+
+## Approved refactors (scout-informed)
+Scouting confirmed: entries are hand-built at **four** append sites in `run_one_try`
+(MutationError, general mutation exception, train/eval error, survived-evaluation — anchor by
+those descriptions, not line numbers); `select_parent` is uniform `_rng.choice` over
+`pareto_frontier_try_ids(successful)` with no weight hook; the full `archive` and `try_id` are in
+scope at selection and at the write sites; entries already set `parent_try_id` (int) and
+`parent_try_ids` (comma-separated str, both parents for combine).
+
+- **R1 — `make_entry(...)` factory (approved).** Centralize archive-entry dict construction in
+  one factory called at all four append sites. The provenance tag lives INSIDE the factory, so
+  the tag is a one-place change now, and every future descriptor (multi-init origin-seed,
+  MAP-Elites niche key) is a one-place change later. Factory builds *what* is appended; each exit
+  still decides *when*. Failed entries are tagged too (they flow through the same factory) — a
+  crashed novel attempt is part of "we tried" for the negative-result report.
+- **R2 — `select_parent` → pool / per-candidate weights / weighted draw (approved).** Since G5
+  makes it weighted anyway, structure it as: build pool → compute weight per candidate → weighted
+  `_rng` draw. Protection is the first weight term; **crowding distance later lands as another
+  term in the same computation** instead of a second rewrite. Signature gains `current_try` +
+  archive access (needed for the protection window and off-frontier protected candidates).
+- **R3 — `parent_try_ids` str→list (rejected for now).** Combine rule (a) parses the existing
+  comma-separated string; not worth touching its consumers in this change.
+- **Still deferred (unchanged):** `choose_operation` operator-registry refactor; lineage-graph
+  traversal (rung 3); `read_candidate_source` extraction.
+
+## Out of scope
+- Per-lineage refinement counting (b), promise-gated protection (e), decay-over-N up-weight —
+  all graduations, not now.
+- Full lineage-graph / genealogy engine — build only if MAP-Elites later forces it.
+- Hypervolume-per-dollar grading — separate project; grace period judged by eye test + the
+  negative-result report for now.
+
+---
+
+# PART II — CODING RECIPE
+
+## Guardrails (both chunks)
+- All randomness threads the shared module-level `_rng`. Never a new RNG, never bare `random.*`.
+- `EvaluationResult` is an object (`.status` / `.metrics` / `.failure_reason`).
+- Constants: named, commented, module-level — no inline literals.
+- **RUNG-2 HARD LIMIT:** lineage = the inherited `lineage_id` field, grouping = filter on that
+  field. Do NOT implement parent-pointer traversal, ancestor queries, or lineage-graph
+  reconstruction — even though the archive's `parent_try_id`s would allow it. That is explicitly
+  out of scope.
+- Do not touch `choose_operation`, the feedback builders, `pick_frontier_extremes`, or repair's
+  selection.
+- v1 raises loudly — no defensive swallowing of can't-happen states.
+
+## Constants (add beside existing operator constants)
+- `NOVELTY_PROTECT_N = 3` — tries a novel lineage stays protected after birth.
+- `NOVELTY_PROTECT_WEIGHT = <human sets>` — protection strength **relative to frontier size**
+  (see Chunk 2 formula). Comment its meaning.
+
+---
+
+## Chunk 1 — R1 factory + provenance tag (build first; Chunk 2 reads the tag)
+
+### `make_entry(try_id, operation, parent, parents, status, result, **extra) -> dict`
+Centralizes archive-entry construction. Called at ALL FOUR append exits of `run_one_try`
+(MutationError after LLM call; general mutation exception; train/eval error; final
+survived-evaluation append) — locate them by those descriptions. **[MATCH]** the exact fields
+each site currently sets (try_id, operation, parent_try_id, parent_try_ids, timing/cost fields,
+result, status mirror) and reproduce them in the factory so behavior is identical; `**extra` (or
+explicit params) covers per-site differences. Each exit keeps deciding WHEN to append; the
+factory only builds WHAT.
+
+Factory additionally sets the provenance tag on every entry (including failures):
+- `origin`: the operation that produced this candidate (reuse the existing operation label).
+- `born_try`: `try_id` (in scope at all sites).
+- `lineage_id`, by inheritance rule:
+  - `novelty` birth → mint a fresh id (deterministic, e.g. `f"nov{try_id}"` — no RNG needed).
+  - `improve` / `repair` child → parent's `lineage_id`.
+  - `combine` child → **rule (a)**: parse the existing comma-separated `parent_try_ids`, look up
+    both parents in the archive; if either parent's lineage is novelty-originated (its
+    `lineage_id` was minted by a novelty birth), inherit THAT id; else inherit the first
+    parent's. Deterministic.
+  - Seed/root entries (no parent) → a root id (e.g. `"seed0"`).
+  - **Backward-compat:** parents created before this change lack `lineage_id` — treat missing as
+    root/seed lineage (`entry.get("lineage_id", "seed0")`). Do not crash on old archives.
+
+**Verification (Chunk 1):** run a short search; assert every row in tries.csv / archive has
+`origin`, `born_try`, `lineage_id`; a novelty try mints a new id; its improve-children carry the
+same id; a combine of (novelty-lineage × tree-lineage) inherits the novelty id. Confirm the four
+exits produce byte-identical entries to before, plus the three new fields.
+
+---
+
+## Chunk 2 — R2 weighted selection + protection (depends on Chunk 1)
+
+### `select_parent(successful, metric_policy, archive, current_try) -> dict`
+Restructure (signature gains `archive`, `current_try` — update the call site in the try loop,
+where both are already in scope **[MATCH]**):
+1. **Pool** = frontier entries (via `pareto_frontier_try_ids(successful)`, as today)
+   ∪ protected entries: ok-status archive entries where
+   `current_try - entry["born_try"] < NOVELTY_PROTECT_N` **and** `origin == "novelty"` lineage
+   birth or descendant of one (i.e. protection keys off the tag; simplest correct check: entry's
+   `lineage_id` was novelty-minted AND within the window — see design G1/G3). Dedupe (a protected
+   entry may already be on the frontier).
+2. **Weights per candidate:** normal frontier member → weight `1.0`; protected candidate →
+   weight `NOVELTY_PROTECT_WEIGHT`-scaled **relative to frontier size**, e.g.
+   `NOVELTY_PROTECT_WEIGHT * len(frontier)` so a protected candidate's pick-probability stays
+   roughly constant as the frontier grows (exact expression: keep it this simple; comment it).
+3. **Draw:** weighted choice via `_rng` (e.g. `_rng.choices(pool, weights, k=1)[0]` —
+   **[MATCH]** the RNG usage style already in the file).
+Structure steps 1–3 as distinct, readable stages — crowding distance will later add another
+weight term in step 2; leave that seam obvious (a comment noting it is fine, no plugin machinery).
+
+**Verification (Chunk 2):** run a short search with a forced early novelty try. Confirm: (a) the
+novelty candidate (off-frontier) appears as an improve-parent within its 3-try window at an
+elevated rate; (b) after the window, it is never selected unless on the frontier; (c) with no
+protected candidates present, selection matches the old uniform-over-frontier behavior
+(regression check); (d) repair/combine selection unchanged.
+
+---
+
+## Out of code scope
+Update the run-summary analysis prompt to use `lineage_id` for the negative-result grouping:
+"for each novelty lineage: N descendants, best metrics reached, frontier outcome." Prompt-only.
+
+## Build order & models
+Chunk 1 → Chunk 2 (protection reads the tag). Both chunks are small; one session each, checkpoint
+after Chunk 1's verification before starting Chunk 2. Suitable for a mid-tier model; the rung-2
+guardrail and the four-exit [MATCH] fidelity are the two things to watch in review.
