@@ -1,0 +1,260 @@
+# Operator Selection Refactor — Full Spec (SensorFlow)
+
+> **Single handoff file.** Part I = design doc (S1–S4). Part II = coding recipe: small
+> hand-held steps, each with a DONE-WHEN gate; every number is a named constant; expected-share
+> tables precomputed. Assumes shipped: novelty, grace period + provenance/lineage, multi-init
+> (post-rename: `operation="init"`, `--baseline`/`--gen-inits`). This lands as its OWN
+> attributable change with a before/after run — do not bundle other roadmap items into it.
+
+---
+
+# PART I — DESIGN DOC
+
+## Purpose
+The waterfall's conditional math (each stage's effective rate depends on every stage above it)
+was fine at 3 operations; at 4+ it is a recurring source of confusion (improve-cliff analysis,
+order-vs-share questions) and every future operator (MAP-Elites emitters, island migration)
+would re-raise it. Replace with an **operator registry**: each operator is
+`{name, eligible(ctx), weight(ctx)}`; selection = one `_rng` draw over eligible operators with
+normalized weights. Shares become explicit and intentional; adding an operator = adding a row.
+
+## Locked decisions
+
+### S1 — Shape: P3 registry, P2 semantics as v1
+- Gates preserved exactly as today: `combine` eligible iff frontier ≥ 3; `novelty` always
+  eligible; `improve` always eligible.
+- Weights: constants for flat operators; `novelty`'s existing linear-decay-to-floor becomes its
+  `weight(progress)` function (reuses `run_progress_fraction` unchanged). **Repair is NOT flat
+  today:** it fires at `0.8 × novelty's current probability` (coupled decay, gated on recent
+  failures) — whatever fork 1 decides must carry this coupling, not a flat constant.
+- One `_rng` draw over eligible rows, weights renormalized. Order in the registry is
+  cosmetic — no ordering math.
+- Context (`ctx`) passed to eligible/weight fns: whatever the waterfall already has in scope
+  (archive, successful, frontier, current_try, progress fraction, flags) — [MATCH] at recipe
+  time, no new state invented.
+
+### S2 — Repair: pre-emptive gate, coupled decay with a floor
+Repair stays a **pre-emptive gate ahead of the draw** (reactive priority preserved): if recent
+failures exist, roll `repair_p` first; only on a miss does the registry draw run.
+- `repair_p = max(REPAIR_COUPLING × novelty_p, REPAIR_FLOOR)` with `REPAIR_COUPLING = 0.8`,
+  `REPAIR_FLOOR = 0.3` (named constants). Coupled to novelty's decay early (novelty drives most
+  crashes), floored so late-run repair capacity never decays away with novelty.
+- Registry rows = the constructive portfolio only (improve / combine / novelty / future
+  operators). Migrating repair to a row (or to demand-driven weight, e.g. scaled by recent
+  failure count) stays a one-row change later.
+
+### S3 — Target weights (explicit, not carried over)
+Raw weights, renormalized over eligible operators each draw:
+- `improve` = **0.4** (constant, always eligible)
+- `combine` = **0.3** (constant; gate: frontier ≥ 3)
+- `novelty` = linear decay **0.7 → 0.1 floor** over the active horizon (reuses
+  `run_progress_fraction`)
+- `repair` = pre-emptive gate per S2: `max(0.8 × novelty_weight, 0.3)`
+Emergent check: improve's normalized share runs ≈0.29 (early) → ≈0.5 (late), averaging ≈0.4
+across a run — matching the target without hand-tuning. Novelty's `weight(ctx)` may later read
+`--gen-inits` (fork: lower start when multi-init supplies early diversity) — deferred, observe
+first.
+
+### S4 — Companion change: init-protection WINDOW scales with init count (select_parent)
+Protection **duration** for init lineages scales with how many inits started the run:
+`init_window = INIT_PROTECT_PER_CANDIDATE × N_inits` (constant = 2: 1 init → 2 tries,
+3 inits → 6). Rationale: N protected candidates share the early draws, so each one's expected
+refinement shots shrink ~1/N; lengthening the window by N keeps **shots-per-lineage roughly
+constant** and gives every init lineage a real chance to propagate.
+- Applies to **init lineages only**; novelty births keep fixed `NOVELTY_PROTECT_N` (a mid-run
+  birth doesn't share its window with siblings).
+- `N_inits` = inits that entered the archive (baseline + generated), survivors or not.
+- Per-candidate protection *weight* unchanged (frontier-scaled max-weight rule as built).
+
+## Open forks
+*(none blocking — the `--gen-inits`-conditional novelty weight is deferred-observe; S4's
+scaling formula needs one confirmation)*
+
+## Out of scope
+- P4 adaptive/bandit weighting (research feature, own eval burden).
+- Changing any operator's internals, prompts, or parent selection.
+- Matching the waterfall's emergent rates exactly (impossible by construction; this change is
+  attributable on purpose).
+
+---
+
+# PART II — CODING RECIPE
+
+
+## Guardrails (both chunks)
+- ALL randomness through the shared module-level `_rng`. Selection = exactly TWO possible
+  `_rng` calls per try: one `_rng.random()` for the repair gate (only when failures exist) and
+  one `_rng.choices(...)` for the draw. No other new RNG calls anywhere.
+- Constants named + commented at module level. NO literal appears twice; NO literal appears in
+  a function body — every number below is a named constant.
+- `choose_operation`'s external contract unchanged: same call site, same return (operation
+  name string). Downstream (dispatch, builders, make_entry) untouched.
+- Do NOT touch: operator internals, prompts, `pick_frontier_extremes`, frontier logic, metric
+  policy, provenance fields.
+- This change is deliberately behavior-CHANGING (new shares). Do not try to reproduce the old
+  waterfall's emergent rates.
+
+## Constants (module level — the complete set, with values)
+```python
+# --- operator portfolio (registry) ---
+IMPROVE_WEIGHT = 0.4          # constant raw weight; improve is always eligible
+COMBINE_WEIGHT = 0.3          # constant raw weight; eligible iff len(frontier) >= COMBINE_MIN_FRONTIER
+COMBINE_MIN_FRONTIER = 3      # [MATCH] the existing combine gate value — reuse, don't retype
+NOVELTY_WEIGHT_START = 0.7    # novelty raw weight at progress 0
+NOVELTY_WEIGHT_FLOOR = 0.1    # novelty raw weight floor
+NOVELTY_DECAY_FRAC = <MATCH>  # [MATCH] the EXISTING novelty decay-horizon fraction constant
+                              # (from the novelty build; likely named ~NOVELTY_CROSSOVER_FRAC).
+                              # Reuse its name & value; do NOT invent a new one.
+# --- repair pre-gate ---
+REPAIR_COUPLING = 0.8         # repair_p = max(REPAIR_COUPLING * novelty_weight(p), REPAIR_FLOOR)
+REPAIR_FLOOR = 0.3
+# --- chunk 2 ---
+INIT_PROTECT_PER_CANDIDATE = 2  # init window = INIT_PROTECT_PER_CANDIDATE * n_inits
+# --- verification ---
+SHARE_TEST_DRAWS = 2000       # mocked-draw sample size
+SHARE_TEST_TOL = 0.03         # ±3pp tolerance (≈2.7σ at p=0.5, n=2000)
+```
+Old waterfall constants (`COMBINE_PROB`, `NOVELTY_START_PROB`, `NOVELTY_FLOOR_PROB`, and the
+current repair-probability expression — [MATCH] their real names) are DELETED in step 1.8.
+
+---
+
+## CHUNK 1 — The registry (`choose_operation` rewrite)
+
+### Step 1.0 — [VERIFY], no code
+Open `choose_operation` and the novelty-probability function. Report, quoting code:
+(a) waterfall order is repair → combine → novelty → improve;
+(b) repair's current probability expression (expected: 0.8 × novelty's current probability);
+(c) the existing novelty decay function's name, signature, and its decay-horizon-fraction
+    constant's name and value;
+(d) the exact combine gate expression (expected `len(frontier) >= 3` or equivalent);
+(e) everything in scope at the `choose_operation` call site: archive, successful, frontier (or
+    inputs to compute it), current try id, tracker/budget, progress fraction.
+**DONE-WHEN:** all five quoted. **STOP** if (b) is not novelty-coupled or (e) lacks a progress
+fraction — report instead of improvising.
+
+### Step 1.1 — Add the constants block
+Add every constant above (except INIT_PROTECT_PER_CANDIDATE — that's Chunk 2) next to the
+existing operator constants. `NOVELTY_DECAY_FRAC` is the EXISTING constant found in 1.0(c) —
+reference it, do not duplicate it. Do not delete anything yet.
+**DONE-WHEN:** file imports/loads clean; old constants still present (deletion is 1.8).
+
+### Step 1.2 — `novelty_weight(progress: float) -> float`
+Pure function, no RNG:
+```python
+def novelty_weight(progress):
+    """Raw registry weight for novelty: linear NOVELTY_WEIGHT_START -> NOVELTY_WEIGHT_FLOOR
+    over the first NOVELTY_DECAY_FRAC of the active horizon, floored thereafter."""
+    decayed = NOVELTY_WEIGHT_START - (NOVELTY_WEIGHT_START - NOVELTY_WEIGHT_FLOOR) * (progress / NOVELTY_DECAY_FRAC)
+    return max(decayed, NOVELTY_WEIGHT_FLOOR)
+```
+If the existing decay function from 1.0(c) already has this exact shape, adapt/rename it rather
+than writing a twin — one decay function in the file, not two.
+**DONE-WHEN:** `novelty_weight(0.0) == 0.7`, `novelty_weight(1.0) == 0.1` (with
+NOVELTY_DECAY_FRAC = 1.0; if the matched value ≠ 1.0, the floor is reached at that fraction —
+check `novelty_weight(NOVELTY_DECAY_FRAC) == 0.1`).
+
+### Step 1.3 — Eligibility helpers + registry
+```python
+def _always_eligible(ctx): return True
+def _combine_eligible(ctx): return len(ctx["frontier"]) >= COMBINE_MIN_FRONTIER
+
+OPERATOR_REGISTRY = [
+    ("improve", _always_eligible,  lambda ctx: IMPROVE_WEIGHT),
+    ("combine", _combine_eligible, lambda ctx: COMBINE_WEIGHT),
+    ("novelty", _always_eligible,  lambda ctx: novelty_weight(ctx["progress"])),
+]
+```
+`ctx` = a plain dict built from the in-scope values found in 1.0(e). Flat and readable — NOT a
+plugin framework, no classes, no registration decorators. Repair is NOT a row (S2).
+**DONE-WHEN:** registry defined; nothing calls it yet.
+
+### Step 1.4 — Rewrite `choose_operation`: repair pre-gate first
+Replace the body. First the gate, preserving current reactive semantics:
+```python
+if recent_failures(archive):           # [MATCH] the existing failure check exactly
+    repair_p = max(REPAIR_COUPLING * novelty_weight(progress), REPAIR_FLOOR)
+    if _rng.random() < repair_p:
+        return "repair"
+```
+**DONE-WHEN:** gate in place; registry draw still absent (next step); function temporarily
+falls through to the old code path or a placeholder — note which.
+
+### Step 1.5 — Registry draw
+```python
+ctx = {"frontier": frontier, "progress": progress, ...}   # from 1.0(e), only what's used
+eligible = [(n, w(ctx)) for (n, elig, w) in OPERATOR_REGISTRY if elig(ctx)]
+assert eligible, "no eligible operators — impossible while improve is unconditional"
+names, weights = zip(*eligible)
+return _rng.choices(names, weights=weights, k=1)[0]
+```
+(`_rng.choices` normalizes weights itself — do not hand-normalize for the draw; normalization
+is only for the debug log/tests.)
+**DONE-WHEN:** old waterfall body fully replaced; function is gate + draw + nothing else.
+
+### Step 1.6 — Debug share log (small, optional but recommended)
+Behind the existing debug flag ([MATCH] the flag added in the cleanup pass), log once per try:
+eligible names + normalized shares (weights / sum). One line, off by default.
+**DONE-WHEN:** with flag on, a 3-try run prints 3 share lines; with flag off, silent.
+
+### Step 1.7 — Mocked-draw share test
+Fixed seed, SHARE_TEST_DRAWS = 2000 draws per scenario, tolerance SHARE_TEST_TOL = ±0.03.
+Expected normalized shares (weights 0.4 / 0.3 / novelty_weight; NOVELTY_DECAY_FRAC = 1.0 —
+recompute the table if the matched value differs):
+
+| scenario                      | improve | combine | novelty |
+|-------------------------------|---------|---------|---------|
+| frontier ≥ 3, progress 0.0    | 0.286   | 0.214   | 0.500   |
+| frontier ≥ 3, progress 0.5    | 0.364   | 0.273   | 0.364   |
+| frontier ≥ 3, progress 1.0    | 0.500   | 0.375   | 0.125   |
+| frontier < 3, progress 0.0    | 0.364   | —       | 0.636   |
+| frontier < 3, progress 1.0    | 0.800   | —       | 0.200   |
+
+Repair gate (failures mocked present): fire rate ≈ 0.56 at progress 0.0, ≈ 0.32 at 0.5,
+= 0.30 at 1.0 (floor active for progress > ~0.54).
+**DONE-WHEN:** all cells within ±0.03; repair rates within ±0.03.
+
+### Step 1.8 — Delete old constants + grep
+Delete the waterfall constants named in 1.0. `grep -rn` each old name across the repo: zero
+hits (code, tests, docs).
+**DONE-WHEN:** grep clean; a `--tries 15` run completes; tries.csv operation mix is plausible
+against the 1.7 table; diff shows dispatch/downstream untouched.
+
+**CHECKPOINT — stop for human review before Chunk 2.** Present: the 1.0 quotes, the 1.7 table
+results, the grep output, and the full `choose_operation` diff.
+
+---
+
+## CHUNK 2 — S4: init window scales with init count (`select_parent`)
+
+### Step 2.0 — [VERIFY], no code
+Quote: (a) the current protection predicate in `select_parent` (expected shape:
+novelty-or-init lineage AND `current_try - born_try < NOVELTY_PROTECT_N`), with actual constant
+names; (b) one expression that yields the init count at selection time (expected:
+`sum(1 for e in archive if e["operation"] == "init")` — post-rename vocabulary).
+**DONE-WHEN:** both quoted. **STOP** if the predicate doesn't distinguish novelty vs init
+lineages (report the actual shape).
+
+### Step 2.1 — Split the window by lineage kind
+In the predicate ONLY:
+- novelty lineage → window stays `NOVELTY_PROTECT_N` (value 3, unchanged);
+- init lineage → window = `INIT_PROTECT_PER_CANDIDATE * n_inits` (constant = 2; 1 init → 2
+  tries, 3 inits → 6). `n_inits` counts ALL archive init entries (baseline + generated,
+  survivors or not — dead inits consumed early draws; that's what the scaling corrects).
+Pool construction, max-weight dedupe, and the frontier-scaled protection weight: UNTOUCHED.
+**DONE-WHEN:** diff touches only the window arithmetic.
+
+### Step 2.2 — Verification
+(a) `--gen-inits 3` run: init lineages get boosted selection through try 6, not beyond;
+(b) `--baseline` only: window 2;
+(c) a mid-run novelty birth: still exactly 3 — regression;
+(d) confirm from tries.csv which parents improve picked inside/outside each window.
+**DONE-WHEN:** all four observed.
+
+---
+
+## Build order & attribution
+Chunk 1 → CHECKPOINT → Chunk 2. Commit separately. This whole spec = one attributable change
+with its own before/after eval run; do NOT bundle the Bedrock-retry fix or crowding distance
+into it. Reviewer watch-list: the repair expression (coupled + floored), the two-RNG-calls
+discipline, the deleted-constants grep, and Chunk 2 touching only window arithmetic.
