@@ -1,3 +1,10 @@
+
+(1) Table fix: NOVELTY_CROSSOVER_FRAC stays at 0.5 — but recompute your expected-share table for it: novelty_weight hits the 0.1 floor at progress 0.5, so the progress-0.5 row becomes improve 0.500 / combine 0.375 / novelty 0.125 (same as progress 1.0), and the repair gate at progress ≥ 0.5 is 0.30 flat; progress-0.0 rows unchanged. Test against these corrected values. (2) This is a replace-and-delete refactor, not an addition. The entire old waterfall selection mechanism must be gone at the end: novelty_fire_probability is absorbed/renamed into novelty_weight (one decay function in the file, not two), and novelty_scale is NOT “preserved as multiplier” — explain what it is and what reads it before writing code; the default is it dies with the waterfall constants unless you show it’s load-bearing elsewhere, in which case stop and report. (3) Go further on cleanup, but only within this change’s blast radius: as you rewrite choose_operation and touch select_parent‘s window, delete any helper functions, constants, branches, or comments that become dead or vestigial because of this refactor — orphaned probability helpers, stale waterfall comments, unused imports it leaves behind. Do NOT extend cleanup to prompts, feedback builders, pick_frontier_extremes, or anything outside these two functions’ orbit — this run must stay attributable to the selection change alone. Final gate: grep for novelty_fire_probability, novelty_scale, COMBINE_PROB, NOVELTY_START_PROB, NOVELTY_FLOOR_PROB returns zero hits; in Chunk 2 reuse the existing protection predicate and change only the window arithmetic, not restated lineage checks. Stop at the checkpoint after the mock distribution test.
+
+
+
+
+
 # Operator Selection Refactor — Full Spec (SensorFlow)
 
 > **Single handoff file.** Part I = design doc (S1–S4). Part II = coding recipe: small
