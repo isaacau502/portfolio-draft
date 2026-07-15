@@ -1,0 +1,282 @@
+# Hypervolume-per-Dollar Harness — Full Spec (SensorFlow)
+
+> **Single handoff file.** Part I = design doc (Charter + H1–H6). Part II = coding recipe
+> (2 chunks, hand-held steps, DONE-WHEN gates, [VERIFY]s embedded — expedited, no separate
+> scout). Standalone measurement module: touches the runner in exactly ONE guarded line at
+> end-of-run; everything else is new code + tests. Behavior-neutral — no before/after eval
+> run needed; the retro sanity check on run_test_gen_inits2 is its validation.
+
+---
+
+# PART I — DESIGN DOC
+
+
+## Purpose
+One number per run answering "how much Pareto frontier did we buy per dollar." Must price
+duplicate-waste automatically (duplicates add zero HV, nonzero $), work retroactively on
+existing run dirs, and be comparable across runs of the same problem.
+
+## Charter (philosophical verdicts — locked, cite when scope-creep threatens)
+- **Ruler, not target.** Exists to grade ablations ("did this change matter"). It never
+  steers the search: no stopping rules, no operator weights, no acceptance criteria read it.
+  (Marginal-HV stopping stays parked; adopting it later = a conscious charter amendment.)
+- **Symmetric HV.** All objectives weighted equally; METRIC_POLICY asymmetry stays out of the
+  headline number. Policy-aware scalarization is a supporting diagnostic at most.
+- **Denominator: dollars (tokens acceptable proxy).** Wall-clock is NOT this metric's job —
+  parallelism is expected to move HV/$ ≈ 0 and is justified by iteration speed, unmeasured
+  here. Don't bend this metric to make throughput work look good.
+- **Run-level attribution.** The run is the accounting unit; lineage credit stays narrative.
+  Corollary: never compare a truncated run's HV/$ against a completed run's.
+- **Reading: bigger is better, read directionally.** Single-seed deltas are direction
+  signals, not statistical claims. (Known cost of this stance: a lucky seed can flatter an
+  ablation; re-run before believing a surprising win.)
+- **Within-problem only.** No cross-problem aggregation; emit bounds-version + run ids so a
+  relative cross-problem form stays computable later without re-running.
+
+## Locked decisions
+
+### H1 — Orientation: normalize everything to "goodness" in [0,1], maximize
+Metrics are mixed-direction (acc/F1 ↑, ROM/latency ↓). Rather than special-casing signs inside
+the HV computation, map each metric to a normalized goodness g ∈ [0,1] where 1 = best,
+0 = worst-acceptable:
+- maximize metrics: g = (x − LO) / (HI − LO)
+- minimize metrics: g = (HI − x) / (HI − LO)  (applied after the H2 transform)
+Clamp to [0,1]; a point outside bounds clamps, loudly logged (WARN, not raise — retro runs may
+predate bound choices). HV is then computed in goodness-space against reference point = origin.
+**Direction per metric is NOT redeclared** — it is read from the same source of truth the
+existing Pareto/frontier logic uses ([MATCH] in recipe: wherever dominance currently learns
+maximize vs minimize, the harness imports that, no parallel table).
+
+### H2 — Log-transform wide-range minimize metrics; fixed, versioned bounds
+ROM spans ~120 → 46,880 bytes: linear normalization makes the 390× tree win a sliver and lets
+one bloated model dominate the scale. Size- and latency-like metrics are log10-transformed
+before normalization; accuracy-like metrics stay linear. Bounds (LO/HI per metric, post-
+transform) are **fixed per problem, named constants, versioned**:
+```python
+HV_BOUNDS_VERSION = 1   # bump = new metric regime; numbers not comparable across versions
+HV_BOUNDS = {           # (LO, HI, transform) per metric — worst-acceptable .. best-plausible
+    "accuracy": (0.5, 1.0, "linear"),      # 0.5 ≈ coin flip floor
+    "f1":       (0.0, 1.0, "linear"),
+    "rom":      (log10(64), log10(262_144), "log10"),   # 64 B .. 256 KiB budget ceiling
+    "latency":  (<same pattern, from eval budget>),
+}
+```
+Exact numbers are proposals — recipe step [VERIFY]s them against METRIC_POLICY floors and the
+eval contract budgets, then freezes. **Bounds provenance rule:** HI (worst-acceptable) = the
+eval contract's semantic budget where one exists; where none exists, worst-ever-observed
+rounded up generously (~5×, to a clean power of two) — data-informed is fine, **data-adaptive
+is not**: bounds never move with new runs. LO (best-plausible floor) is a judgment call the
+log transform makes insensitive. The reference point is part of the metric: **never moved
+mid-comparison**; runs are only comparable at equal HV_BOUNDS_VERSION, and every emitted HV
+value carries the version.
+
+### H3 — What's measured: frontier HV, cumulatively per try
+At each try t, compute HV of the Pareto frontier of the archive as of t (frontier extraction
+reuses the existing frontier function — no reimplementation). Emit the curve HV(t) alongside
+cumulative dollars(t). Headline scalar = final HV / final dollars. The curve is the yield
+instrument (marginal slope = "was try 25 still earning"); the scalar is the resume number.
+
+### H4 — Denominator: all Bedrock spend in the run
+tracker's cumulative dollars, including init generation, contract extraction, failed/aborted
+calls — everything the run cost. No cherry-picking "productive" spend; waste dragging the
+number is the point. Dollars are derived (tokens × price table), so: per-try token counts are
+logged regardless, and the price table is versioned like the bounds — comparisons valid at
+equal price-table version, and any historical run can be re-dollared under a new table from
+its token logs. (Eval compute is local and free; if evals ever move to cloud, their cost
+joins the denominator under a new bounds-version note.)
+
+### H5 — HV computation: exact, own implementation, no new dependency
+4 objectives, frontier ≤ ~50 points: exact HV by recursive dimension-sweep (WFG-style slicing)
+is trivial at this scale — no pymoo dependency for one indicator. Pure function
+`hypervolume(points, ref) -> float` with the 2D base case, unit-tested against hand-computable
+anchors, e.g. points {(0.5, 0.5), (0.8, 0.2)}, ref (0,0) → HV = 0.25 + 0.3×0.2 = **0.31**.
+(If we ever exceed ~6 objectives or hundreds of points, revisit; not this platform's regime.)
+
+### H6 — Placement: standalone module; auto-score at end of run + CLI for old runs
+`sensorflow_v0/hypervolume.py`: normalization, HV function, `score_run(run_dir)` reading the
+run's tries.csv (+ whatever cost record exists) and writing hv.csv (try_id, hv,
+cumulative_dollars, hv_per_dollar) + a one-line summary into the run dir. Two uses, one function:
+1. **Auto at end of run:** runner calls `score_run(run_dir)` once, after the search loop is
+   fully done and summary/tries are written (last line of the run, measurement after the fact
+   — it reads the same files the CLI reads, never live state). Every new run gets hv.csv +
+   headline in summary automatically. This is the ONLY runner touch: one call at the very
+   end; zero influence on search behavior, and a scoring failure must not kill the run
+   (log loudly, exit normally — the CLI can rescore).
+2. **CLI for old runs / comparisons:** `python -m sensorflow_v0.hypervolume RUN_DIR [RUN_DIR_2]`
+   - One dir: score (or re-score) it — write hv.csv + summary line, print the headline
+     (hv, dollars, hv/$, bounds version).
+   - Two dirs (optional): score both, print a comparison block — each headline + the delta
+     (hv/$ B vs A, % change). The before/after verdict in one command. Max two: A/B ruler,
+     not a leaderboard.
+**No other runner edits, no import from runner into the module** (it may import the frontier
+function and METRIC_POLICY direction source — read-only reuse of pure functions). Retro-scores
+every historical run immediately, including the registry before/after pair. [VERIFY] in
+recipe: does tries.csv carry per-try cost/tokens? If yes → true cumulative curve; if only
+run-total cost exists in summary/tracker artifacts → curve degrades to HV(t) with a single
+final HV/$ scalar, stated in the output, still sufficient for ablation verdicts. (If we later
+want per-try cost columns for finer curves, THAT would be a runner change — separate, optional,
+not part of this build.)
+
+## Out of scope (parked, see logbook + measurement-panel notes)
+Marginal-HV stopping rule (future budget-mode termination), restart-consistency protocol,
+fair-trial ledger extraction, weighted/policy-aware HV (METRIC_POLICY asymmetry — v2 candidate
+if symmetric HV visibly misprices policy-relevant wins), duplicate-rate KPI (logbook).
+
+## Verification approach (for the recipe)
+1. Unit anchors: 2D hand case (0.31 above); 3D case with one dominated point (dominated adds 0).
+2. Duplicate invariance: HV(frontier) == HV(frontier + exact duplicates); HV/$ strictly drops.
+3. Retro sanity: score run_test_gen_inits2 — expect visible HV jump at the try-16 tree
+   discovery and flat segments across the anchor-lock tries (6, 8, 11, 13).
+4. Clamp path: synthetic out-of-bounds point → clamped + WARN, no crash.
+
+---
+
+# PART II — CODING RECIPE
+
+
+## Guardrails
+- New module `sensorflow_v0/hypervolume.py` + tests. It may IMPORT (read-only) the existing
+  frontier/dominance function and the METRIC_POLICY direction source. It must NOT import
+  runner, mutate any search state, or redeclare metric directions.
+- Charter applies: ruler, not target. Nothing in the search reads any HV value.
+- Every number is a named constant. No literal appears in a function body.
+- A scoring failure at end-of-run must never kill the run (log loudly, continue).
+
+## Constants (module level, complete set — values are proposals pending step 1.0 [VERIFY])
+```python
+HV_BOUNDS_VERSION = 1
+# per metric: (LO, HI, transform); goodness 1 = best, 0 = worst-acceptable; see H1/H2
+HV_BOUNDS = {
+    "accuracy": (0.5, 1.0, "linear"),            # 0.5 ~ coin-flip floor
+    "f1":       (0.0, 1.0, "linear"),
+    "rom":      (64.0, 262_144.0, "log10"),      # bytes; HI = worst-observed(46,880)x~5 → 256 KiB
+    "latency":  (<from eval contract budget>, "log10"),   # [VERIFY] real metric name + budget
+}
+HV_REFERENCE = 0.0            # origin of goodness space (per H1)
+GOODNESS_BEST = 1.0
+GOODNESS_WORST = 0.0
+HV_OUTPUT_FILENAME = "hv.csv"
+```
+Anchor test values (precomputed, see steps 1.3):
+- 2D: points {(0.5, 0.5), (0.8, 0.2)}, ref origin → HV = **0.31**
+- 3D: points {(0.6, 0.6, 0.2), (0.2, 0.2, 0.8)} → HV = **0.096**;
+  adding dominated point (0.2, 0.2, 0.2) leaves it **0.096** (duplicate/dominated invariance)
+
+---
+
+## CHUNK 1 — Pure math: normalization + hypervolume + tests
+
+### Step 1.0 — [VERIFY], no code
+Report, quoting code:
+(a) tries.csv column names ([MATCH] `_CSV_FIELDNAMES` in archive.py): exact metric column
+    names (accuracy/f1/rom/latency or otherwise), status column, and whether ANY per-try
+    cost or token columns exist;
+(b) the existing frontier/dominance function: name, signature, and WHERE it learns each
+    metric's direction (maximize/minimize) — this is the direction source the module imports;
+(c) where run-total cost lives (summary.json field? tracker artifact?) for the degraded-curve
+    path (H6 [VERIFY]);
+(d) the eval contract's latency budget (and confirm the ROM worst-observed ≈ 46,880 B) to
+    freeze HV_BOUNDS numbers.
+**DONE-WHEN:** all four quoted. **STOP** if (b) has no single direction source — report the
+actual shape instead of inventing a direction table.
+
+### Step 1.1 — Module skeleton + constants
+Create `sensorflow_v0/hypervolume.py` with the constants block (numbers frozen per 1.0(d),
+metric keys renamed to the REAL column names from 1.0(a)). Imports: stdlib (csv, json, math,
+argparse, pathlib, logging) + the two read-only internal imports from 1.0(b) and config.
+**DONE-WHEN:** `python -c "import sensorflow_v0.hypervolume"` clean; no runner import anywhere
+in the file (grep the file for `runner`: zero hits).
+
+### Step 1.2 — `normalize(metrics: dict) -> tuple[float, ...]`
+Pure function: for each metric in HV_BOUNDS order — apply transform (log10 for that kind,
+identity for linear), map to goodness via H1's formulas using the direction from the imported
+source (maximize: (x−LO)/(HI−LO); minimize: (HI−x)/(HI−LO)), clamp to
+[GOODNESS_WORST, GOODNESS_BEST] with a WARN log when clamping fires (include metric name, raw
+value, run/try id if available).
+**DONE-WHEN:** unit checks — best plausible values → (1.0,...); worst-acceptable → (0.0,...);
+ROM 46,880 B lands strictly inside (0,1); an out-of-bounds ROM (e.g. 300 KiB) clamps to 0.0
+and logs exactly one WARN.
+
+### Step 1.3 — `hypervolume(points, ref) -> float` (exact, recursive slicing)
+Standard HSO recursion, dimension-agnostic:
+1. Drop dominated points first (reuse the imported dominance if its signature fits goodness
+   tuples; otherwise a local ≤-all/-<-any check on goodness tuples is acceptable HERE ONLY,
+   as it operates in normalized all-maximize space, not on raw metrics).
+2. Base case d=1: max coordinate − ref.
+3. Recursive case: sort points descending by the last coordinate z; for each consecutive slab
+   (z_i → z_{i+1}, with z_{n+1} = ref): slab HV = (z_i − z_{i+1}) × hypervolume of the
+   (d−1)-projection of all points whose last coordinate ≥ z_i.
+No memoization, no cleverness — frontier ≤ ~50 points, d = 4.
+**DONE-WHEN (all three anchors, exact to 1e-9):** 2D → 0.31; 3D → 0.096; 3D + dominated
+point → 0.096. Plus duplicate invariance: any anchor set + exact copies of its points →
+identical HV.
+
+### Step 1.4 — Unit test file
+`tests/test_hypervolume.py` (or the repo's test convention — [MATCH]): the 1.2 and 1.3
+DONE-WHEN checks as assertions, runnable via the repo's usual test command.
+**DONE-WHEN:** tests pass from a clean shell.
+
+**CHECKPOINT — stop for human review.** Present: 1.0 quotes, frozen HV_BOUNDS, anchor test
+output, the normalize WARN sample.
+
+---
+
+## CHUNK 2 — Run scoring, CLI, the one runner line, retro sanity
+
+### Step 2.1 — `score_run(run_dir: Path) -> dict`
+Read tries.csv; for each successful try t (status per 1.0(a)), build the archive-so-far,
+extract the frontier **with the imported frontier function** [MATCH — do not reimplement
+dominance on raw metrics], normalize frontier points, compute HV(t).
+Cost per 1.0(a)/(c): if per-try cost/tokens exist → cumulative dollars(t) and hv_per_dollar(t)
+per row; else → hv per row, dollars only on the final row from the run-total source, and the
+returned dict says `"curve": "hv_only"` vs `"full"`.
+Returns `{hv, dollars, hv_per_dollar, bounds_version, curve, n_tries, n_frontier}`.
+**DONE-WHEN:** function runs on one historical run dir and returns a sane dict; raises loudly
+(v1 convention) on missing tries.csv or unknown metric columns.
+
+### Step 2.2 — Writers
+`write_hv_csv(run_dir, rows)` → hv.csv (try_id, hv, cumulative_dollars, hv_per_dollar,
+bounds_version) into the run dir; append/update a compact block in the run's summary.json
+under key `"hypervolume"` (create key; never touch other keys — read, update one key, write).
+**DONE-WHEN:** hv.csv exists with header + one row per scored try; summary.json diff shows
+ONLY the hypervolume key added.
+
+### Step 2.3 — CLI (`__main__`)
+`python -m sensorflow_v0.hypervolume RUN_DIR [RUN_DIR_2]` per H6:
+- 1 dir: score, write, print headline `hv=… dollars=… hv/$=… (bounds v…)`.
+- 2 dirs: score both, print both headlines + delta block (absolute + % change of hv/$,
+  B relative to A). argparse enforces max 2 (nargs, no more).
+**DONE-WHEN:** both invocations work on historical run dirs; exit code 0; 3 dirs → argparse
+error, not a crash.
+
+### Step 2.4 — Retro sanity on run_test_gen_inits2 (the built-in truth check)
+Score it. Expect: visible HV(t) jump at the try-16 tree-discovery; flat HV across the
+anchor-lock tries (6, 8, 11, 13 — byte-identical metrics add zero); monotone non-decreasing
+HV(t) overall (frontier only grows).
+**DONE-WHEN:** all three observed and stated with the actual numbers. If the try-16 jump is
+NOT visible, STOP — the normalization (likely ROM transform/bounds) is wrong; report, don't
+tune silently.
+
+### Step 2.5 — The one runner line
+At the very end of the run path ([MATCH] the exact point after write_summary and all file
+output completes — quote it first), add the single guarded call:
+```python
+try:
+    hypervolume.score_run(run_dir)   # measurement only; must never kill a finished run
+except Exception:
+    logger.exception("hypervolume scoring failed — run artifacts are intact; rescore via CLI")
+```
+**DONE-WHEN:** a fresh `--tries 3` run ends with hv.csv present; deliberately breaking the
+module (temporarily) still lets the run exit 0 with the loud log; break reverted.
+
+### Step 2.6 — Close out
+Grep: no search-side file reads hv.csv or any hypervolume value (Charter: ruler, not target).
+**DONE-WHEN:** grep clean; diff shows runner touched in exactly one place.
+
+---
+
+## Build order & attribution
+Chunk 1 → CHECKPOINT → Chunk 2. This build is behavior-neutral (one guarded call after the
+run completes) — no before/after eval needed; the 2.4 retro sanity IS its validation.
+Reviewer watch-list: direction source imported not redeclared (1.0(b)/1.2), frontier function
+reused not reimplemented (2.1), summary.json single-key update (2.2), the 2.4 numbers.
