@@ -1,0 +1,76 @@
+# selection.py Split — Full Spec (SensorFlow)
+
+> **Single handoff file, compact — this is a PURE MOVE.** No renames, no signature changes,
+> no logic edits, no "while I'm here." One commit. Prep step for the crowding-distance +
+> duplicate-feedback build, which lands INTO this module next.
+> Names below are BEHAVIORAL descriptions, not a checklist to type — step 1 discovers the
+> real names in runner.py; [MATCH, DON'T INVENT] throughout.
+
+## PART I — DESIGN (brief)
+
+**Goal:** isolate search strategy from orchestration. `sensorflow_v0/selection.py` receives,
+moved verbatim, everything that answers two questions and nothing else:
+1. **"Which archive entry becomes the parent?"** — the parent-selection function and its
+   direct helpers (protection-window logic, frontier-extreme picking, best-on-a-metric
+   lookup, target-metric choice).
+2. **"Which operator runs this try?"** — the operator-choice function and its machinery
+   (the registry table, eligibility helpers, the novelty decay-weight function, the repair
+   gate's recency check if it's a standalone function; if inline, it moves with its owner).
+
+**Constants rule (behavioral, not a name list):** a constant moves to selection.py iff it is
+read ONLY by the functions above — operator weights, gates, decay parameters, protection
+windows and their scaling factors. A constant read by anything else (metric policy,
+diagnostics) stays in config.py and is imported. Step 1 produces the actual partition by
+grepping consumers; ambiguous cases get flagged, not guessed.
+
+**The one real design point — the shared RNG.** The moved functions draw from the shared
+seeded RNG instance. If it currently lives in runner.py, selection.py cannot import it from
+there (circular: runner imports selection). Resolution, locked: **the RNG instance moves to
+config.py**; runner and selection both import it. This is the only permitted change beyond
+file moves + import lines, and it must preserve single-instance semantics — one Random
+object, same seed as today, no copies. (Draw order can only shift if module-level draws
+exist — step 1 verifies there are none.)
+
+**Out of scope:** any behavior change; frontier/dominance code (stays where it lives —
+hypervolume.py imports it from there and must be unaffected); prompts; archive; reporting.
+
+## PART II — RECIPE (one chunk)
+
+### Step 1 — [VERIFY], no code
+Report, quoting runner.py:
+(a) the actual names + signatures of every function matching the two behavioral groups above,
+    plus any helper called ONLY by them (belongs in the move) — flag anything ambiguous;
+(b) the consumer-partition of candidate constants: for each, which functions read it —
+    yielding the moves-vs-stays split per the constants rule;
+(c) where the shared RNG instance is defined and every reference to it;
+(d) confirmation there are no module-level RNG draws (draws only inside function bodies);
+(e) what hypervolume.py imports and from where (must be untouched by this split).
+**DONE-WHEN:** all five quoted. **STOP** if the RNG has consumers outside runner + the moved
+functions, or module-level draws exist — report before moving anything.
+
+### Step 2 — Move the RNG to config.py
+Single instance, same seed (as a named constant if it isn't already). runner.py imports it
+from config.
+**DONE-WHEN:** a `--tries 3` run completes and its tries.csv operations column is
+BYTE-IDENTICAL to a pre-change `--tries 3` run at the same seed and args — this proves
+single-instance semantics survived.
+
+### Step 3 — Create selection.py, move verbatim
+Cut-paste the step-1(a) function set and step-1(b) "moves" constants. selection.py imports
+only from config (RNG, shared constants); nothing from runner. Update runner.py imports.
+**DONE-WHEN:** file loads; runner.py no longer defines any moved name (grep each: only
+import-line hits); moved function bodies byte-identical to their pre-move text (diff them).
+
+### Step 4 — Full verification
+(a) no circular imports (grep selection.py for any runner import: zero);
+(b) the same-seed `--tries 3` twin again — operations column and metrics byte-identical to
+    pre-split;
+(c) the hypervolume CLI still scores a historical run dir (its import path untouched);
+(d) existing tests pass.
+**DONE-WHEN:** all four green. Commit as one pure-move commit.
+
+## Reviewer watch-list
+Byte-identical same-seed twin (the whole proof), RNG single-instance, zero logic diffs in
+moved bodies, hypervolume imports unaffected, constants partition justified by consumers
+(not by name). Next build (crowding + duplicate-feedback) lands INTO selection.py — do not
+pre-build any seam for it here.
